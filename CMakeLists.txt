@@ -26,6 +26,7 @@ option(ENABLE_NODE_BINDINGS "Build NodeJs bindings" ON)
 option(ENABLE_CCACHE "Speed up incremental rebuilds via ccache" ON)
 option(ENABLE_COVERAGE "Build with coverage instrumentalisation" OFF)
 option(ENABLE_SANITIZER "Use memory sanitizer for Debug build" OFF)
+option(ENABLE_ANDROID "Build settings for Android" OFF)
 set(LOGGING_LEVEL "" CACHE STRING "Logging level, default is INFO")
 set_property(CACHE LOGGING_LEVEL PROPERTY STRINGS "NONE;ALL;ERROR;WARN;INFO;DEBUG;TRACE")
 
@@ -106,6 +107,11 @@ if(ENABLE_COVERAGE)
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/coverage.info)
 endif()
 
+if(ENABLE_ANDROID)
+  SET(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -llog")
+  message(STATUS "Using Android build settings")
+endif()
+
 ## Dependencies
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -151,6 +157,7 @@ if(CMAKE_VERSION VERSION_LESS 3.9)
   endif()
 endif()
 
+include_directories(${Protobuf_INCLUDE_DIRS})
 # Allow linking against full or lite version of Protobuf library
 # TODO: After switching to CMake 3.12+, replace with
 #       $<TARGET_EXISTS:protobuf::libprotobuf
@@ -192,6 +199,10 @@ elseif(ENABLE_TOOLS)
 ## Header only boost for the library without mjolnir
 elseif(NOT Boost_FOUND)
   find_package(Boost 1.51 REQUIRED)
+endif()
+
+if(Boost_FOUND)
+  include_directories(${Boost_INCLUDE_DIR})
 endif()
 
 ## libvalhalla
