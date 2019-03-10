@@ -127,6 +127,27 @@ void TestConnectivityMap() {
   boost::filesystem::remove_all(tile_dir);
 }
 
+void TestCustomTileDecoder() {
+  boost::property_tree::ptree pt;
+  pt.put("tile_dir", "test/gphrdr_test");
+  std::string tile_dir = pt.get<std::string>("tile_dir");
+
+  GraphReader reader(pt, [](const std::string& tilePath) {
+    const auto path = boost::filesystem::path{tilePath};
+    if (path.filename().generic_string() != "483.gph") {
+      return std::shared_ptr<std::vector<char>>{};
+    }
+
+    // This is enough to ensure it succeeds
+    std::vector<char> testData = {'t', 'e', 's', 't'};
+    return std::make_shared<std::vector<char>>(std::move(testData));
+  });
+
+  if (reader.GetGraphTile({40.798205f, -73.648304f}) == nullptr) {
+    throw std::runtime_error("Custom tile decoder did not return data");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -137,6 +158,8 @@ int main() {
   suite.test(TEST_CASE(TestCacheLimits));
 
   suite.test(TEST_CASE(TestConnectivityMap));
+
+  suite.test(TEST_CASE(TestCustomTileDecoder));
 
   return suite.tear_down();
 }

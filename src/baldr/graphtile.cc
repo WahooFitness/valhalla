@@ -36,6 +36,79 @@ constexpr float COMPRESSION_HINT = 3.5f;
 namespace valhalla {
 namespace baldr {
 
+/* Attempts to read tile data from uncompressed file
+ * @param file_location Path and filename of uncompressed tile data
+ * @return A shared_ptr to a vector containing the tile data
+ */
+std::shared_ptr<std::vector<char>> readUncompressedTile(const std::string& file_location) {
+  std::ifstream file(file_location, std::ios::in | std::ios::binary | std::ios::ate);
+  if (file.is_open()) {
+    // Read binary file into memory. TODO - protect against failure to
+    // allocate memory
+    size_t filesize = file.tellg();
+    auto graphtile = std::make_shared<std::vector<char>>(filesize);
+    file.seekg(0, std::ios::beg);
+    file.read(graphtile->data(), filesize);
+    file.close();
+
+    return graphtile;
+  }
+
+  // return empty pointer
+  return std::shared_ptr<std::vector<char>>();
+}
+
+/* Attempts to read tile data from a gzip or zlib compressed file
+ * @param file_location Path and filename of compressed tile data
+ * @return A shared_ptr to a vector containing the decompressed tile data
+ */
+std::shared_ptr<std::vector<char>> readGzippedTile(const std::string& file_location) {
+
+  // Open to the end of the file so we can immediately get size;
+  std::ifstream file(file_location + ".gz", std::ios::in | std::ios::binary);
+  if (file.is_open()) {
+    // read the compressed file into memory
+    std::vector<char> compressed(std::istreambuf_iterator<char>(file),
+                                 (std::istreambuf_iterator<char>()));
+
+    // for setting where to read compressed data from
+    auto src_func = [&compressed](z_stream& s) -> void {
+      s.next_in = static_cast<Byte*>(static_cast<void*>(compressed.data()));
+      s.avail_in = static_cast<unsigned int>(compressed.size());
+    };
+
+    // for setting where to write the uncompressed data to
+    auto graphtile = std::make_shared<std::vector<char>>(0, 0);
+    auto dst_func = [graphtile, &compressed](z_stream& s) -> int {
+      // if the whole buffer wasn't used we are done
+      auto size = graphtile->size();
+      if (s.total_out < size)
+        graphtile->resize(s.total_out);
+      // we need more space
+      else {
+        // assume we need 3.5x the space
+        graphtile->resize(size + (compressed.size() * COMPRESSION_HINT));
+        // set the pointer to the next spot
+        s.next_out = static_cast<Byte*>(static_cast<void*>(graphtile->data() + size));
+        s.avail_out = compressed.size() * COMPRESSION_HINT;
+      }
+      return Z_NO_FLUSH;
+    };
+
+    // Decompress tile into memory
+    if (!baldr::inflate(src_func, dst_func)) {
+      LOG_WARN("Failed to gunzip: " + file_location + ".gz");
+      graphtile.reset();
+    } else {
+      return graphtile;
+    }
+  } else {
+    LOG_DEBUG("Tile " + file_location + " was not found");
+  }
+
+  return std::shared_ptr<std::vector<char>>();
+}
+
 // Default constructor
 GraphTile::GraphTile()
     : header_(nullptr), nodes_(nullptr), directededges_(nullptr), ext_directededges_(nullptr),
@@ -49,72 +122,35 @@ GraphTile::GraphTile()
 }
 
 // Constructor given a filename. Reads the graph data into memory.
-GraphTile::GraphTile(const std::string& tile_dir, const GraphId& graphid) : header_(nullptr) {
+GraphTile::GraphTile(const std::string& tile_dir,
+                     const GraphId& graphid,
+                     CustomTileDecoder customTileDecoder)
+    : header_(nullptr) {
 
   // Don't bother with invalid ids
   if (!graphid.Is_Valid() || graphid.level() > TileHierarchy::get_max_level()) {
     return;
   }
 
-  // Open to the end of the file so we can immediately get size;
   std::string file_location =
       tile_dir + filesystem::path::preferred_separator + FileSuffix(graphid.Tile_Base());
-  std::ifstream file(file_location, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    // Read binary file into memory. TODO - protect against failure to
-    // allocate memory
-    size_t filesize = file.tellg();
-    graphtile_.reset(new std::vector<char>(filesize));
-    file.seekg(0, std::ios::beg);
-    file.read(graphtile_->data(), filesize);
-    file.close();
 
-    // Set pointers to internal data structures
-    Initialize(graphid, graphtile_->data(), graphtile_->size());
-  } // try to load a gzipped tile
-  else {
-    std::ifstream file(file_location + ".gz", std::ios::in | std::ios::binary);
-    if (file.is_open()) {
-      // read the compressed file into memory
-      std::vector<char> compressed(std::istreambuf_iterator<char>(file),
-                                   (std::istreambuf_iterator<char>()));
+  // If the host bothered to set a custom decoder, then that's probably what we want first
+  if (customTileDecoder) {
+    graphtile_ = customTileDecoder(file_location);
+  }
 
-      // for setting where to read compressed data from
-      auto src_func = [&compressed](z_stream& s) -> void {
-        s.next_in = static_cast<Byte*>(static_cast<void*>(compressed.data()));
-        s.avail_in = static_cast<unsigned int>(compressed.size());
-      };
-
-      // for setting where to write the uncompressed data to
-      graphtile_.reset(new std::vector<char>(0, 0));
-      auto dst_func = [this, &compressed](z_stream& s) -> int {
-        // if the whole buffer wasn't used we are done
-        auto size = graphtile_->size();
-        if (s.total_out < size)
-          graphtile_->resize(s.total_out);
-        // we need more space
-        else {
-          // assume we need 3.5x the space
-          graphtile_->resize(size + (compressed.size() * COMPRESSION_HINT));
-          // set the pointer to the next spot
-          s.next_out = static_cast<Byte*>(static_cast<void*>(graphtile_->data() + size));
-          s.avail_out = compressed.size() * COMPRESSION_HINT;
-        }
-        return Z_NO_FLUSH;
-      };
-
-      // Decompress tile into memory
-      if (!baldr::inflate(src_func, dst_func)) {
-        LOG_WARN("Failed to gunzip: " + file_location + ".gz");
-        graphtile_.reset();
-        return;
-      }
-
-      // Set pointers to internal data structures
-      Initialize(graphid, graphtile_->data(), graphtile_->size());
-    } else {
-      LOG_DEBUG("Tile " + file_location + " was not found");
+  if (!graphtile_) {
+    graphtile_ = readUncompressedTile(file_location);
+    if (!graphtile_) {
+      graphtile_ = readGzippedTile(file_location);
     }
+  }
+
+  if (graphtile_) {
+    Initialize(graphid, graphtile_->data(), graphtile_->size());
+  } else {
+    LOG_DEBUG("Tile " + file_location + " was not found");
   }
 }
 

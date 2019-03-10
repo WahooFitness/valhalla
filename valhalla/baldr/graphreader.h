@@ -206,8 +206,10 @@ public:
   /**
    * Constructor using tiles as separate files.
    * @param pt  Property tree listing the configuration for the tile storage.
+   * @param customTileDecoder A function that is called to decode tiles using a custom encoding
    */
-  GraphReader(const boost::property_tree::ptree& pt);
+  explicit GraphReader(const boost::property_tree::ptree& pt,
+                       GraphTile::CustomTileDecoder customTileDecoder = nullptr);
 
   /**
    * Test if tile exists
@@ -567,6 +569,9 @@ protected:
   std::string tile_dir_;
 
   std::unique_ptr<TileCache> cache_;
+
+  // Custom tile decoder we'll pass onto the graph reader
+  GraphTile::CustomTileDecoder customTileDecoder_;
 };
 
 } // namespace baldr

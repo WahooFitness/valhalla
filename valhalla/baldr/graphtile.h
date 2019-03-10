@@ -38,6 +38,12 @@ namespace baldr {
 class GraphTile {
 public:
   /**
+   * A custom reader function that extracts data from a specially encoded tile.
+   * It returns a buffer containing the decoded tile or null on failure.
+   */
+  using CustomTileDecoder = std::function<std::shared_ptr<std::vector<char>>(const std::string&)>;
+
+  /**
    * Constructor
    */
   GraphTile();
@@ -48,7 +54,9 @@ public:
    * @param  tile_dir   Tile directory.
    * @param  graphid    GraphId (tileid and level)
    */
-  GraphTile(const std::string& tile_dir, const GraphId& graphid);
+  GraphTile(const std::string& tile_dir,
+            const GraphId& graphid,
+            CustomTileDecoder customDecoder = nullptr);
 
   /**
    * Constructor given the graph Id, pointer to the tile data, and the

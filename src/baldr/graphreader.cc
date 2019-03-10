@@ -170,9 +170,11 @@ TileCache* TileCacheFactory::createTileCache(const boost::property_tree::ptree& 
 }
 
 // Constructor using separate tile files
-GraphReader::GraphReader(const boost::property_tree::ptree& pt)
+GraphReader::GraphReader(const boost::property_tree::ptree& pt,
+                         GraphTile::CustomTileDecoder customTileDecoder)
     : tile_url_(pt.get<std::string>("tile_url", "")), tile_dir_(pt.get<std::string>("tile_dir")),
-      tile_extract_(get_extract_instance(pt)), cache_(TileCacheFactory::createTileCache(pt)) {
+      tile_extract_(get_extract_instance(pt)), cache_(TileCacheFactory::createTileCache(pt)),
+      customTileDecoder_(customTileDecoder) {
   // Reserve cache (based on whether using individual tile files or shared,
   // mmap'd file
   cache_->Reserve(tile_extract_->tiles.empty() ? AVERAGE_TILE_SIZE : AVERAGE_MM_TILE_SIZE);
@@ -253,7 +255,7 @@ const GraphTile* GraphReader::GetGraphTile(const GraphId& graphid) {
   } // Try getting it from flat file
   else {
     // This reads the tile from disk
-    GraphTile tile(tile_dir_, base);
+    GraphTile tile(tile_dir_, base, customTileDecoder_);
     if (!tile.header()) {
       if (tile_url_.empty() || _404s.find(base) != _404s.end()) {
         return nullptr;
