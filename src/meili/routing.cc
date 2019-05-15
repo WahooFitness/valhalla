@@ -9,6 +9,7 @@
 #include "midgard/distanceapproximator.h"
 #include "sif/costconstants.h"
 #include "sif/dynamiccost.h"
+#include "midgard/logging.h"
 
 #include "meili/routing.h"
 
@@ -580,9 +581,17 @@ find_shortest_path(baldr::GraphReader& reader,
             if (tile == nullptr) {
               continue;
             }
-            float sortcost = cost.cost + heuristic(tile->get_node_ll(directededge->endnode()));
-            labelset->put(directededge->endnode(), origin_edge.id, origin_edge.percent_along, 1.f,
-                          cost, turn_cost, sortcost, label_idx, directededge, travelmode);
+
+            // Check that the node ID is in the tile. If not, skip it rather than throw
+            // an exception because that causes an outright failure.
+            // TODO: What is the underlying cause of an edge not being in a tile when we expect it?
+            if (directededge->endnode().id() < tile->header()->nodecount()) {
+              const float sortcost = cost.cost + heuristic(tile->get_node_ll(directededge->endnode()));
+              labelset->put(directededge->endnode(), origin_edge.id, origin_edge.percent_along, 1.f,
+                            cost, turn_cost, sortcost, label_idx, directededge, travelmode);
+            } else {
+              LOG_WARN("Node ID not found in tile. Skipping it.");
+            }
           }
         }
       }
