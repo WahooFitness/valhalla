@@ -535,5 +535,9 @@ std::unordered_set<GraphId> GraphReader::GetTileSet(const uint8_t level) const {
   return tiles;
 }
 
+void GraphReader::SetCustomTileDecoder(GraphTile::CustomTileDecoder customTileDecoder) {
+  customTileDecoder_ = customTileDecoder;
+}
+
 } // namespace baldr
 } // namespace valhalla
