@@ -547,6 +547,13 @@ public:
   std::unordered_set<GraphId> GetTileSet(const uint8_t level) const;
 
   /**
+   * Sets a function object that will be invoked to decode graph tiles not supported
+   * by Valhalla internally.
+   * @param customTileDecoder A function that is called to decode graph tiles
+   */
+  void SetCustomTileDecoder(GraphTile::CustomTileDecoder customTileDecoder);
+
+  /**
    * Returns the tile directory.
    * @return  Returns the tile directory.
    */
