@@ -5,7 +5,7 @@ using namespace valhalla::baldr;
 namespace valhalla {
 namespace sif {
 
-DynamicCost::DynamicCost(const odin::DirectionsOptions& options, const TravelMode mode)
+DynamicCost::DynamicCost(const Options& options, const TravelMode mode)
     : pass_(0), allow_transit_connections_(false), allow_destination_only_(true), travel_mode_(mode) {
   // Parse property tree to get hierarchy limits
   // TODO - get the number of levels
@@ -15,8 +15,8 @@ DynamicCost::DynamicCost(const odin::DirectionsOptions& options, const TravelMod
   }
 
   // Add avoid edges to internal set
-  for (auto& edgeid : options.avoid_edges()) {
-    user_avoid_edges_.insert(GraphId(edgeid));
+  for (auto& edge : options.avoid_edges()) {
+    user_avoid_edges_.insert({GraphId(edge.id()), edge.percent_along()});
   }
 }
 
@@ -170,9 +170,9 @@ bool DynamicCost::IsExcluded(const baldr::GraphTile*& tile, const baldr::NodeInf
 }
 
 // Adds a list of edges (GraphIds) to the user specified avoid list.
-void DynamicCost::AddUserAvoidEdges(const std::vector<GraphId>& avoid_edges) {
-  for (auto edgeid : avoid_edges) {
-    user_avoid_edges_.insert(edgeid);
+void DynamicCost::AddUserAvoidEdges(const std::vector<AvoidEdge>& avoid_edges) {
+  for (auto edge : avoid_edges) {
+    user_avoid_edges_.insert({edge.id, edge.percent_along});
   }
 }
 

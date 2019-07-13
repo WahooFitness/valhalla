@@ -19,7 +19,7 @@ int GetThreshold(const TravelMode mode, const int n) {
   return (mode == TravelMode::kDrive) ? std::min(2700, std::max(100, n / 3)) : 500;
 }
 
-bool equals(const valhalla::odin::LatLng& a, const valhalla::odin::LatLng& b) {
+bool equals(const valhalla::LatLng& a, const valhalla::LatLng& b) {
   return a.has_lat() == b.has_lat() && a.has_lng() == b.has_lng() &&
          (!a.has_lat() || a.lat() == b.lat()) && (!a.has_lng() || a.lng() == b.lng());
 }
@@ -102,8 +102,8 @@ void CostMatrix::Clear() {
 // Form a time distance matrix from the set of source locations
 // to the set of target locations.
 std::vector<TimeDistance> CostMatrix::SourceToTarget(
-    const google::protobuf::RepeatedPtrField<odin::Location>& source_location_list,
-    const google::protobuf::RepeatedPtrField<odin::Location>& target_location_list,
+    const google::protobuf::RepeatedPtrField<valhalla::Location>& source_location_list,
+    const google::protobuf::RepeatedPtrField<valhalla::Location>& target_location_list,
     GraphReader& graphreader,
     const std::shared_ptr<DynamicCost>* mode_costing,
     const TravelMode mode,
@@ -186,8 +186,8 @@ std::vector<TimeDistance> CostMatrix::SourceToTarget(
 // are the same get set to 0 time, distance and do not add to the
 // remaining locations set.
 void CostMatrix::Initialize(
-    const google::protobuf::RepeatedPtrField<odin::Location>& source_locations,
-    const google::protobuf::RepeatedPtrField<odin::Location>& target_locations) {
+    const google::protobuf::RepeatedPtrField<valhalla::Location>& source_locations,
+    const google::protobuf::RepeatedPtrField<valhalla::Location>& target_locations) {
   // Add initial status
   const uint32_t kMaxThreshold = std::numeric_limits<int>::max();
   for (uint32_t i = 0; i < source_count_; i++) {
@@ -658,7 +658,7 @@ void CostMatrix::BackwardSearch(const uint32_t index, GraphReader& graphreader) 
 // Sets the source/origin locations. Search expands forward from these
 // locations.
 void CostMatrix::SetSources(GraphReader& graphreader,
-                            const google::protobuf::RepeatedPtrField<odin::Location>& sources) {
+                            const google::protobuf::RepeatedPtrField<valhalla::Location>& sources) {
   // Allocate edge labels and edge status
   source_count_ = sources.size();
   source_edgelabel_.resize(source_count_);
@@ -688,8 +688,13 @@ void CostMatrix::SetSources(GraphReader& graphreader,
         continue;
       }
 
+      // Disallow any user avoid edges if the avoid location is ahead of the origin along the edge
+      GraphId edgeid(edge.graph_id());
+      if (costing_->AvoidAsOriginEdge(edgeid, edge.percent_along())) {
+        continue;
+      }
+
       // Get the directed edge and the opposing edge Id
-      GraphId edgeid = static_cast<GraphId>(edge.graph_id());
       const GraphTile* tile = graphreader.GetGraphTile(edgeid);
       const DirectedEdge* directededge = tile->directededge(edgeid);
       GraphId oppedge = graphreader.GetOpposingEdgeId(edgeid);
@@ -729,7 +734,7 @@ void CostMatrix::SetSources(GraphReader& graphreader,
 // Set the target/destination locations. Search expands backwards from
 // these locations.
 void CostMatrix::SetTargets(baldr::GraphReader& graphreader,
-                            const google::protobuf::RepeatedPtrField<odin::Location>& targets) {
+                            const google::protobuf::RepeatedPtrField<valhalla::Location>& targets) {
   // Allocate target edge labels and edge status
   target_count_ = targets.size();
   target_edgelabel_.resize(targets.size());
@@ -760,8 +765,14 @@ void CostMatrix::SetTargets(baldr::GraphReader& graphreader,
         continue;
       }
 
+      // Disallow any user avoided edges if the avoid location is behind the destination along the
+      // edge
+      GraphId edgeid(edge.graph_id());
+      if (costing_->AvoidAsDestinationEdge(edgeid, edge.percent_along())) {
+        continue;
+      }
+
       // Get the directed edge
-      GraphId edgeid = static_cast<GraphId>(edge.graph_id());
       const GraphTile* tile = graphreader.GetGraphTile(edgeid);
       const DirectedEdge* directededge = tile->directededge(edgeid);
 

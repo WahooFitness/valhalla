@@ -6,6 +6,7 @@
 #include "midgard/logging.h"
 #include "midgard/point2.h"
 #include "midgard/polyline2.h"
+#include "mjolnir/elevationbuilder.h"
 #include "mjolnir/graphbuilder.h"
 #include "mjolnir/graphenhancer.h"
 #include "mjolnir/graphfilter.h"
@@ -21,6 +22,8 @@
 #include <boost/algorithm/string/split.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <boost/property_tree/ptree.hpp>
+
+using namespace valhalla::midgard;
 
 namespace {
 
@@ -196,7 +199,7 @@ bool build_tile_set(const boost::property_tree::ptree& config,
     OSMPBF::Parser::free();
 
     // Write the OSMData to files if parsing is the end stage
-    if (end_stage == BuildStage::kParse) {
+    if (end_stage <= BuildStage::kEnhance) {
       osm_data.write_to_temp_files(tile_dir);
     }
   }
@@ -217,7 +220,11 @@ bool build_tile_set(const boost::property_tree::ptree& config,
   // level that is usable across all levels (density, administrative
   // information (and country based attribution), edge transition logic, etc.
   if (start_stage <= BuildStage::kEnhance && BuildStage::kEnhance <= end_stage) {
-    GraphEnhancer::Enhance(config, access_bin);
+    // Read OSMData names from file if building tiles is the first stage
+    if (start_stage == BuildStage::kEnhance) {
+      osm_data.read_from_unique_names_file(tile_dir);
+    }
+    GraphEnhancer::Enhance(config, osm_data, access_bin);
   }
 
   // Perform optional edge filtering (remove edges and nodes for specific access modes)
@@ -252,7 +259,15 @@ bool build_tile_set(const boost::property_tree::ptree& config,
     LOG_INFO("Skipping hierarchy builder and shortcut builder");
   }
 
+  // Add elevation to the tiles
+  if (start_stage <= BuildStage::kElevation && BuildStage::kElevation <= end_stage) {
+    ElevationBuilder::Build(config);
+  }
+
   // Build the Complex Restrictions
+  // ComplexRestrictions must be done after elevation. The reason is that building
+  // elevation into the tiles reads each tile and serializes the data to "builders"
+  // within the tile. However, there is no serialization currently available for complex restrictions.
   if (start_stage <= BuildStage::kRestrictions && BuildStage::kRestrictions <= end_stage) {
     RestrictionBuilder::Build(config, cr_from_bin, cr_to_bin);
   }

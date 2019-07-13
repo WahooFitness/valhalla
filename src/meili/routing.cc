@@ -365,7 +365,8 @@ find_shortest_path(baldr::GraphReader& reader,
 
   // Lambda for heuristic
   float search_rad2 = search_radius * search_radius;
-  const auto heuristic = [&approximator, &search_radius, &search_rad2](const PointLL& lnglat) {
+  const auto heuristic = [&approximator, &search_radius,
+                          &search_rad2](const midgard::PointLL& lnglat) {
     float d2 = approximator.DistanceSquared(lnglat);
     return (d2 < search_rad2) ? 0.0f : sqrtf(d2) - search_radius;
   };
@@ -578,9 +579,10 @@ find_shortest_path(baldr::GraphReader& reader,
           if (cost.cost < max_dist && (max_time < 0 || cost.secs < max_time)) {
             // Get the end node tile and node lat,lon to compute heuristic
             const baldr::GraphTile* endtile = reader.GetGraphTile(directededge->endnode());
-            if (tile == nullptr) {
+            if (endtile == nullptr) {
               continue;
             }
+<<<<<<< HEAD
 
             // Check that the node ID is in the tile. If not, skip it rather than throw
             // an exception because that causes an outright failure.
@@ -592,6 +594,11 @@ find_shortest_path(baldr::GraphReader& reader,
             } else {
               LOG_WARN("Node ID not found in tile. Skipping it.");
             }
+=======
+            float sortcost = cost.cost + heuristic(endtile->get_node_ll(directededge->endnode()));
+            labelset->put(directededge->endnode(), origin_edge.id, origin_edge.percent_along, 1.f,
+                          cost, turn_cost, sortcost, label_idx, directededge, travelmode);
+>>>>>>> master
           }
         }
       }

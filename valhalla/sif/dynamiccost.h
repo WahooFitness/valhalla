@@ -10,13 +10,13 @@
 #include <valhalla/baldr/nodeinfo.h>
 #include <valhalla/baldr/timedomain.h>
 #include <valhalla/baldr/transitdeparture.h>
-#include <valhalla/proto/directions_options.pb.h>
+#include <valhalla/proto/options.pb.h>
 #include <valhalla/sif/costconstants.h>
 #include <valhalla/sif/edgelabel.h>
 #include <valhalla/sif/hierarchylimits.h>
 
 #include <memory>
-#include <unordered_set>
+#include <unordered_map>
 
 namespace valhalla {
 namespace sif {
@@ -44,11 +44,11 @@ constexpr uint32_t kDefaultUnitSize = 1;
 
 // Maximum penalty allowed. Cannot be too high because sometimes one cannot avoid a particular
 // attribute or condition to complete a route.
-constexpr float kMaxPenalty = 12.0f * kSecPerHour; // 12 hours
+constexpr float kMaxPenalty = 12.0f * midgard::kSecPerHour; // 12 hours
 
 // Maximum ferry penalty (when use_ferry == 0). Can't make this too large
 // since a ferry is sometimes required to complete a route.
-constexpr float kMaxFerryPenalty = 6.0f * kSecPerHour; // 6 hours
+constexpr float kMaxFerryPenalty = 6.0f * midgard::kSecPerHour; // 6 hours
 
 /**
  * Base class for dynamic edge costing. This class defines the interface for
@@ -70,7 +70,7 @@ public:
    * @param  options Request options in a pbf
    * @param  mode Travel mode
    */
-  DynamicCost(const odin::DirectionsOptions& options, const TravelMode mode);
+  DynamicCost(const Options& options, const TravelMode mode);
 
   virtual ~DynamicCost();
 
@@ -471,9 +471,9 @@ public:
    * This can be used by test programs - alternatively a list of avoid
    * edges will be passed in the property tree for the costing options
    * of a specified type.
-   * @param  avoid_edges  Set of edge Ids to avoid.
+   * @param  avoid_edges  Set of edge Ids to avoid along with the percent along the edge.
    */
-  void AddUserAvoidEdges(const std::vector<baldr::GraphId>& avoid_edges);
+  void AddUserAvoidEdges(const std::vector<AvoidEdge>& avoid_edges);
 
   /**
    * Check if the edge is in the user-specified avoid list.
@@ -484,6 +484,34 @@ public:
   bool IsUserAvoidEdge(const baldr::GraphId& edgeid) const {
     return (user_avoid_edges_.size() != 0 &&
             user_avoid_edges_.find(edgeid) != user_avoid_edges_.end());
+  }
+
+  /**
+   * Check if the edge is in the user-specified avoid list and should be avoided when used
+   * as an origin. In this case the edge is avoided if the avoid percent along is greater than
+   * the PathEdge percent along (avoid location is ahead of the origin alongn the edge).
+   * @param  edgeid  Directed edge Id.
+   * @param  pct_along Percent along the edge of the PathEdge (location).
+   * @return Returns true if the edge Id is in the user avoid edges set,
+   *         false otherwise.
+   */
+  bool AvoidAsOriginEdge(const baldr::GraphId& edgeid, const float percent_along) const {
+    auto avoid = user_avoid_edges_.find(edgeid);
+    return (avoid != user_avoid_edges_.end() && avoid->second >= percent_along);
+  }
+
+  /**
+   * Check if the edge is in the user-specified avoid list and should be avoided when used
+   * as a destinationn. In this case the edge is avoided if the avoid percent along is less than
+   * the PathEdge percent along (avoid location is behind the destination along the edge).
+   * @param  edgeid  Directed edge Id.
+   * @param  pct_along Percent along the edge of the PathEdge (location).
+   * @return Returns true if the edge Id is in the user avoid edges set,
+   *         false otherwise.
+   */
+  bool AvoidAsDestinationEdge(const baldr::GraphId& edgeid, const float percent_along) const {
+    auto avoid = user_avoid_edges_.find(edgeid);
+    return (avoid != user_avoid_edges_.end() && avoid->second <= percent_along);
   }
 
 protected:
@@ -504,8 +532,8 @@ protected:
   // Hierarchy limits.
   std::vector<HierarchyLimits> hierarchy_limits_;
 
-  // User specified edges to avoid
-  std::unordered_set<baldr::GraphId> user_avoid_edges_;
+  // User specified edges to avoid with percent along (for avoiding PathEdges of locations)
+  std::unordered_map<baldr::GraphId, float> user_avoid_edges_;
 
   // Weighting to apply to ferry edges
   float ferry_factor_;
@@ -525,7 +553,7 @@ protected:
    * Get the base transition costs (and ferry factor) from the costing options.
    * @param costing_options Protocol buffer of costing options.
    */
-  void get_base_costs(const odin::CostingOptions& costing_options) {
+  void get_base_costs(const CostingOptions& costing_options) {
     // Cost only (no time) penalties
     alley_penalty_ = costing_options.alley_penalty();
     destination_only_penalty_ = costing_options.destination_only_penalty();

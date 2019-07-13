@@ -13,6 +13,7 @@
 #include <random>
 #endif
 
+using namespace valhalla::midgard;
 using namespace valhalla::baldr;
 
 namespace valhalla {
@@ -51,6 +52,9 @@ constexpr float kTCReverse = 5.0f;
 
 // How much to favor hov roads.
 constexpr float kHOVFactor = 0.85f;
+
+// How much to favor taxi roads.
+constexpr float kTaxiFactor = 0.85f;
 
 // Turn costs based on side of street driving
 constexpr float kRightSideTurnCosts[] = {kTCStraight,       kTCSlight,  kTCFavorable,
@@ -114,7 +118,7 @@ public:
    * @param  costing specified costing type.
    * @param  options pbf with request options.
    */
-  AutoCost(const odin::Costing costing, const odin::DirectionsOptions& options);
+  AutoCost(const Costing costing, const Options& options);
 
   virtual ~AutoCost() {
   }
@@ -298,14 +302,14 @@ public:
 };
 
 // Constructor
-AutoCost::AutoCost(const odin::Costing costing, const odin::DirectionsOptions& options)
+AutoCost::AutoCost(const Costing costing, const Options& options)
     : DynamicCost(options, TravelMode::kDrive), trans_density_factor_{1.0f, 1.0f, 1.0f, 1.0f,
                                                                       1.0f, 1.1f, 1.2f, 1.3f,
                                                                       1.4f, 1.6f, 1.9f, 2.2f,
                                                                       2.5f, 2.8f, 3.1f, 3.5f} {
 
   // Grab the costing options based on the specified costing type
-  const odin::CostingOptions& costing_options = options.costing_options(static_cast<int>(costing));
+  const CostingOptions& costing_options = options.costing_options(static_cast<int>(costing));
 
   // Get the vehicle type - enter as string and convert to enum.
   // Used to set the surface factor - penalize some roads based on surface type.
@@ -512,7 +516,7 @@ Cost AutoCost::TransitionCostReverse(const uint32_t idx,
 
 void ParseAutoCostOptions(const rapidjson::Document& doc,
                           const std::string& costing_options_key,
-                          odin::CostingOptions* pbf_costing_options) {
+                          CostingOptions* pbf_costing_options) {
   auto json_costing_options = rapidjson::get_child_optional(doc, costing_options_key.c_str());
 
   if (json_costing_options) {
@@ -606,7 +610,7 @@ void ParseAutoCostOptions(const rapidjson::Document& doc,
   }
 }
 
-cost_ptr_t CreateAutoCost(const odin::Costing costing, const odin::DirectionsOptions& options) {
+cost_ptr_t CreateAutoCost(const Costing costing, const Options& options) {
   return std::make_shared<AutoCost>(costing, options);
 }
 
@@ -621,8 +625,7 @@ public:
    * Pass in options with protocol buffer(pbf).
    * @param  options  pbf with options.
    */
-  AutoShorterCost(const odin::Costing costing, const odin::DirectionsOptions& options)
-      : AutoCost(costing, options) {
+  AutoShorterCost(const Costing costing, const Options& options) : AutoCost(costing, options) {
     // Create speed cost table that reduces the impact of speed
     adjspeedfactor_[0] = kSecPerHour; // TODO - what to make speed=0?
     for (uint32_t s = 1; s <= kMaxSpeedKph; s++) {
@@ -665,12 +668,11 @@ protected:
 
 void ParseAutoShorterCostOptions(const rapidjson::Document& doc,
                                  const std::string& costing_options_key,
-                                 odin::CostingOptions* pbf_costing_options) {
+                                 CostingOptions* pbf_costing_options) {
   ParseAutoCostOptions(doc, costing_options_key, pbf_costing_options);
 }
 
-cost_ptr_t CreateAutoShorterCost(const odin::Costing costing,
-                                 const odin::DirectionsOptions& options) {
+cost_ptr_t CreateAutoShorterCost(const Costing costing, const Options& options) {
   return std::make_shared<AutoShorterCost>(costing, options);
 }
 
@@ -684,8 +686,7 @@ public:
    * Pass in configuration using property tree.
    * @param  pt  Property tree with configuration/options.
    */
-  BusCost(const odin::Costing costing, const odin::DirectionsOptions& options)
-      : AutoCost(costing, options) {
+  BusCost(const Costing costing, const Options& options) : AutoCost(costing, options) {
     type_ = VehicleType::kBus;
   }
 
@@ -870,11 +871,11 @@ bool BusCost::AllowedReverse(const baldr::DirectedEdge* edge,
 
 void ParseBusCostOptions(const rapidjson::Document& doc,
                          const std::string& costing_options_key,
-                         odin::CostingOptions* pbf_costing_options) {
+                         CostingOptions* pbf_costing_options) {
   ParseAutoCostOptions(doc, costing_options_key, pbf_costing_options);
 }
 
-cost_ptr_t CreateBusCost(const odin::Costing costing, const odin::DirectionsOptions& options) {
+cost_ptr_t CreateBusCost(const Costing costing, const Options& options) {
   return std::make_shared<BusCost>(costing, options);
 }
 
@@ -889,8 +890,7 @@ public:
    * Pass in options using protocol buffer(pbf).
    * @param  options  pbf with options.
    */
-  HOVCost(const odin::Costing costing, const odin::DirectionsOptions& options)
-      : AutoCost(costing, options) {
+  HOVCost(const Costing costing, const Options& options) : AutoCost(costing, options) {
   }
 
   virtual ~HOVCost() {
@@ -1090,12 +1090,231 @@ bool HOVCost::AllowedReverse(const baldr::DirectedEdge* edge,
 
 void ParseHOVCostOptions(const rapidjson::Document& doc,
                          const std::string& costing_options_key,
-                         odin::CostingOptions* pbf_costing_options) {
+                         CostingOptions* pbf_costing_options) {
   ParseAutoCostOptions(doc, costing_options_key, pbf_costing_options);
 }
 
-cost_ptr_t CreateHOVCost(const odin::Costing costing, const odin::DirectionsOptions& options) {
+cost_ptr_t CreateHOVCost(const Costing costing, const Options& options) {
   return std::make_shared<HOVCost>(costing, options);
+}
+
+/**
+ * Derived class providing an alternate costing for driving that is intended
+ * to favor Taxi roads.
+ */
+class TaxiCost : public AutoCost {
+public:
+  /**
+   * Construct taxi costing.
+   * Pass in options using protocol buffer(pbf).
+   * @param  options  pbf with options.
+   */
+  TaxiCost(const Costing costing, const Options& options) : AutoCost(costing, options) {
+  }
+
+  virtual ~TaxiCost() {
+  }
+
+  /**
+   * Get the access mode used by this costing method.
+   * @return  Returns access mode.
+   */
+  uint32_t access_mode() const {
+    return kTaxiAccess;
+  }
+
+  /**
+   * Checks if access is allowed for the provided directed edge.
+   * This is generally based on mode of travel and the access modes
+   * allowed on the edge. However, it can be extended to exclude access
+   * based on other parameters such as conditional restrictions and
+   * conditional access that can depend on time and travel mode.
+   * @param  edge           Pointer to a directed edge.
+   * @param  pred           Predecessor edge information.
+   * @param  tile           Current tile.
+   * @param  edgeid         GraphId of the directed edge.
+   * @param  current_time   Current time (seconds since epoch). A value of 0
+   *                        indicates the route is not time dependent.
+   * @param  tz_index       timezone index for the node
+   * @return Returns true if access is allowed, false if not.
+   */
+  virtual bool Allowed(const baldr::DirectedEdge* edge,
+                       const EdgeLabel& pred,
+                       const baldr::GraphTile*& tile,
+                       const baldr::GraphId& edgeid,
+                       const uint64_t current_time,
+                       const uint32_t tz_index) const;
+
+  /**
+   * Checks if access is allowed for an edge on the reverse path
+   * (from destination towards origin). Both opposing edges (current and
+   * predecessor) are provided. The access check is generally based on mode
+   * of travel and the access modes allowed on the edge. However, it can be
+   * extended to exclude access based on other parameters such as conditional
+   * restrictions and conditional access that can depend on time and travel
+   * mode.
+   * @param  edge           Pointer to a directed edge.
+   * @param  pred           Predecessor edge information.
+   * @param  opp_edge       Pointer to the opposing directed edge.
+   * @param  tile           Current tile.
+   * @param  edgeid         GraphId of the opposing edge.
+   * @param  current_time   Current time (seconds since epoch). A value of 0
+   *                        indicates the route is not time dependent.
+   * @param  tz_index       timezone index for the node
+   */
+  virtual bool AllowedReverse(const baldr::DirectedEdge* edge,
+                              const EdgeLabel& pred,
+                              const baldr::DirectedEdge* opp_edge,
+                              const baldr::GraphTile*& tile,
+                              const baldr::GraphId& opp_edgeid,
+                              const uint64_t current_time,
+                              const uint32_t tz_index) const;
+
+  /**
+   * Returns the cost to traverse the edge and an estimate of the actual time
+   * (in seconds) to traverse the edge.
+   * @param  edge     Pointer to a directed edge.
+   * @param  speed    A speed for a road segment/edge.
+   * @return  Returns the cost to traverse the edge.
+   */
+  virtual Cost EdgeCost(const baldr::DirectedEdge* edge, const uint32_t speed) const {
+    float factor = (edge->use() == Use::kFerry) ? ferry_factor_ : density_factor_[edge->density()];
+    if ((edge->forwardaccess() & kTaxiAccess) && !(edge->forwardaccess() & kAutoAccess)) {
+      factor *= kTaxiFactor;
+    }
+    float sec = (edge->length() * speedfactor_[speed]);
+    return Cost(sec * factor, sec);
+  }
+
+  /**
+   * Checks if access is allowed for the provided node. Node access can
+   * be restricted if bollards or gates are present.
+   * @param  node  Pointer to node information.
+   * @return  Returns true if access is allowed, false if not.
+   */
+  virtual bool Allowed(const baldr::NodeInfo* node) const {
+    return (node->access() & kTaxiAccess);
+  }
+
+  /**
+   * Returns a function/functor to be used in location searching which will
+   * exclude and allow ranking results from the search by looking at each
+   * edges attribution and suitability for use as a location by the travel
+   * mode used by the costing method. Function/functor is also used to filter
+   * edges not usable / inaccessible by taxi.
+   */
+  virtual const EdgeFilter GetEdgeFilter() const {
+    // Throw back a lambda that checks the access for this type of costing
+    return [](const baldr::DirectedEdge* edge) {
+      if (!(edge->forwardaccess() & kTaxiAccess)) {
+        return 0.0f;
+      } else {
+        // TODO - use classification/use to alter the factor
+        return 1.0f;
+      }
+    };
+  }
+
+  /**
+   * Returns a function/functor to be used in location searching which will
+   * exclude results from the search by looking at each node's attribution
+   * @return Function/functor to be used in filtering out nodes
+   */
+  virtual const NodeFilter GetNodeFilter() const {
+    // throw back a lambda that checks the access for this type of costing
+    return [](const baldr::NodeInfo* node) { return !(node->access() & kTaxiAccess); };
+  }
+};
+
+// Check if access is allowed on the specified edge.
+bool TaxiCost::Allowed(const baldr::DirectedEdge* edge,
+                       const EdgeLabel& pred,
+                       const baldr::GraphTile*& tile,
+                       const baldr::GraphId& edgeid,
+                       const uint64_t current_time,
+                       const uint32_t tz_index) const {
+  // TODO - obtain and check the access restrictions.
+
+  // Check access, U-turn, and simple turn restriction.
+  // Allow U-turns at dead-end nodes in case the origin is inside
+  // a not thru region and a heading selected an edge entering the
+  // region.
+  if (!(edge->forwardaccess() & kTaxiAccess) ||
+      (!pred.deadend() && pred.opp_local_idx() == edge->localedgeidx()) ||
+      (pred.restrictions() & (1 << edge->localedgeidx())) ||
+      edge->surface() == Surface::kImpassable || IsUserAvoidEdge(edgeid) ||
+      (!allow_destination_only_ && !pred.destonly() && edge->destonly())) {
+    return false;
+  }
+  if (edge->access_restriction()) {
+    const std::vector<baldr::AccessRestriction>& restrictions =
+        tile->GetAccessRestrictions(edgeid.id(), kTaxiAccess);
+    for (const auto& restriction : restrictions) {
+      if (restriction.type() == AccessType::kTimedAllowed) {
+        // allowed at this range or allowed all the time
+        return (current_time && restriction.value())
+                   ? IsRestricted(restriction.value(), current_time, tz_index)
+                   : true;
+      } else if (restriction.type() == AccessType::kTimedDenied) {
+        // not allowed at this range or restricted all the time
+        return (current_time && restriction.value())
+                   ? !IsRestricted(restriction.value(), current_time, tz_index)
+                   : false;
+      }
+    }
+  }
+  return true;
+}
+
+// Checks if access is allowed for an edge on the reverse path (from
+// destination towards origin). Both opposing edges are provided.
+bool TaxiCost::AllowedReverse(const baldr::DirectedEdge* edge,
+                              const EdgeLabel& pred,
+                              const baldr::DirectedEdge* opp_edge,
+                              const baldr::GraphTile*& tile,
+                              const baldr::GraphId& opp_edgeid,
+                              const uint64_t current_time,
+                              const uint32_t tz_index) const {
+  // TODO - obtain and check the access restrictions.
+
+  // Check access, U-turn, and simple turn restriction.
+  // Allow U-turns at dead-end nodes.
+  if (!(opp_edge->forwardaccess() & kTaxiAccess) ||
+      (!pred.deadend() && pred.opp_local_idx() == edge->localedgeidx()) ||
+      (opp_edge->restrictions() & (1 << pred.opp_local_idx())) ||
+      opp_edge->surface() == Surface::kImpassable || IsUserAvoidEdge(opp_edgeid) ||
+      (!allow_destination_only_ && !pred.destonly() && opp_edge->destonly())) {
+    return false;
+  }
+
+  if (edge->access_restriction()) {
+    const std::vector<baldr::AccessRestriction>& restrictions =
+        tile->GetAccessRestrictions(opp_edgeid.id(), kTaxiAccess);
+    for (const auto& restriction : restrictions) {
+      if (restriction.type() == AccessType::kTimedAllowed) {
+        // allowed at this range or allowed all the time
+        return (current_time && restriction.value())
+                   ? IsRestricted(restriction.value(), current_time, tz_index)
+                   : true;
+      } else if (restriction.type() == AccessType::kTimedDenied) {
+        // not allowed at this range or restricted all the time
+        return (current_time && restriction.value())
+                   ? !IsRestricted(restriction.value(), current_time, tz_index)
+                   : false;
+      }
+    }
+  }
+  return true;
+}
+
+void ParseTaxiCostOptions(const rapidjson::Document& doc,
+                          const std::string& costing_options_key,
+                          CostingOptions* pbf_costing_options) {
+  ParseAutoCostOptions(doc, costing_options_key, pbf_costing_options);
+}
+
+cost_ptr_t CreateTaxiCost(const Costing costing, const Options& options) {
+  return std::make_shared<TaxiCost>(costing, options);
 }
 
 /**
@@ -1110,8 +1329,7 @@ public:
    * Pass in configuration using property tree.
    * @param  pt  Property tree with configuration/options.
    */
-  AutoDataFix(const odin::Costing costing, const odin::DirectionsOptions& options)
-      : AutoCost(costing, options) {
+  AutoDataFix(const Costing costing, const Options& options) : AutoCost(costing, options) {
   }
 
   virtual ~AutoDataFix() {
@@ -1171,12 +1389,11 @@ public:
 
 void ParseAutoDataFixCostOptions(const rapidjson::Document& doc,
                                  const std::string& costing_options_key,
-                                 odin::CostingOptions* pbf_costing_options) {
+                                 CostingOptions* pbf_costing_options) {
   ParseAutoCostOptions(doc, costing_options_key, pbf_costing_options);
 }
 
-cost_ptr_t CreateAutoDataFixCost(const odin::Costing costing,
-                                 const odin::DirectionsOptions& options) {
+cost_ptr_t CreateAutoDataFixCost(const Costing costing, const Options& options) {
   return std::make_shared<AutoDataFix>(costing, options);
 }
 
@@ -1194,8 +1411,7 @@ namespace {
 
 class TestAutoCost : public AutoCost {
 public:
-  TestAutoCost(const odin::Costing costing, const odin::DirectionsOptions& options)
-      : AutoCost(costing, options){};
+  TestAutoCost(const Costing costing, const Options& options) : AutoCost(costing, options){};
 
   using AutoCost::alley_penalty_;
   using AutoCost::country_crossing_cost_;
@@ -1209,9 +1425,9 @@ public:
 TestAutoCost* make_autocost_from_json(const std::string& property, float testVal) {
   std::stringstream ss;
   ss << R"({"costing_options":{"auto":{")" << property << R"(":)" << testVal << "}}}";
-  valhalla::valhalla_request_t request;
-  request.parse(ss.str(), valhalla::odin::DirectionsOptions::route);
-  return new TestAutoCost(valhalla::odin::Costing::auto_, request.options);
+  Api request;
+  ParseApi(ss.str(), valhalla::Options::route, request);
+  return new TestAutoCost(valhalla::Costing::auto_, request.options());
 }
 
 std::uniform_real_distribution<float>*

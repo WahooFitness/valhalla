@@ -32,6 +32,7 @@ set(sources
   directededgebuilder.cc
   graphtilebuilder.cc
   edgeinfobuilder.cc
+  elevationbuilder.cc
   ferry_connections.cc
   graphbuilder.cc
   graphenhancer.cc
@@ -64,6 +65,7 @@ valhalla_module(NAME mjolnir
       ${VALHALLA_SOURCE_DIR}
       ${VALHALLA_SOURCE_DIR}/valhalla
       ${VALHALLA_SOURCE_DIR}/third_party/date/include
+      ${PROTOBUF_INCLUDE_DIR}
    PRIVATE
       ${CMAKE_CURRENT_BINARY_DIR}
       ${CMAKE_CURRENT_BINARY_DIR}/valhalla
