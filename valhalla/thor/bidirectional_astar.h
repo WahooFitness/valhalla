@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <valhalla/baldr/double_bucket_queue.h>
-#include <valhalla/proto/tripcommon.pb.h>
+#include <valhalla/proto/api.pb.h>
 #include <valhalla/sif/edgelabel.h>
 #include <valhalla/sif/hierarchylimits.h>
 #include <valhalla/thor/astarheuristic.h>
@@ -171,11 +171,13 @@ protected:
    * The path from where the paths meet to the destination is then appended
    * using the opposing edges (so the path is traversed forward).
    * @param   graphreader  Graph tile reader (for getting opposing edges).
-   * @return  Returns the path info, a list of GraphIds representing the
+   * @param   options      Controls whether or not we get alternatives
+   * @return  Returns the path infos, a list of GraphIds representing the
    *          directed edges along the path - ordered from origin to
    *          destination - along with travel modes and elapsed time.
    */
-  std::vector<PathInfo> FormPath(baldr::GraphReader& graphreader);
+  std::vector<std::vector<PathInfo>> FormPath(baldr::GraphReader& graphreader,
+                                              const Options& options);
 };
 
 } // namespace thor
