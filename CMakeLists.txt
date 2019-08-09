@@ -198,6 +198,10 @@ if(ENABLE_DATA_TOOLS)
   find_package(Boost 1.51 REQUIRED COMPONENTS date_time filesystem system program_options)
   find_package(SQLite3 REQUIRED)
   find_package(SpatiaLite REQUIRED)
+  add_library(SpatialLite::SpatialLite INTERFACE IMPORTED)
+  set_target_properties(SpatialLite::SpatialLite PROPERTIES
+    INTERFACE_LINK_LIBRARIES "${SPATIALITE_LIBRARIES}"
+    INTERFACE_INCLUDE_DIRECTORIES "${SPATIALITE_INCLUDE_DIR}")
   find_package(Lua REQUIRED)
   add_library(Lua::Lua INTERFACE IMPORTED)
   set_target_properties(Lua::Lua PROPERTIES
@@ -210,6 +214,7 @@ elseif(ENABLE_TOOLS)
 elseif(NOT Boost_FOUND)
   find_package(Boost 1.51 REQUIRED)
 endif()
+add_definitions(-DBOOST_NO_CXX11_SCOPED_ENUMS)
 
 if(Boost_FOUND)
   include_directories(${Boost_INCLUDE_DIR})
@@ -220,6 +225,7 @@ add_subdirectory(src)
 
 ## Python bindings
 if(ENABLE_PYTHON_BINDINGS)
+  #TODO: need to make sure they actually have python
   add_subdirectory(src/bindings/python)
   install(FILES COPYING ChangeLog
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/python-valhalla"
@@ -247,7 +253,7 @@ endfunction()
 ## Valhalla programs
 set(valhalla_programs valhalla_run_map_match valhalla_benchmark_loki valhalla_benchmark_skadi
   valhalla_run_isochrone valhalla_run_route valhalla_benchmark_adjacency_list valhalla_run_matrix
-  valhalla_path_comparison valhalla_export_edges)
+  valhalla_path_comparison valhalla_export_edges valhalla_expand_bounding_box)
 
 ## Valhalla data tools
 set(valhalla_data_tools valhalla_build_statistics valhalla_ways_to_edges valhalla_validate_transit
