@@ -1837,6 +1837,19 @@ bool ManeuversBuilder::IsFork(int node_index,
       return true;
     }
   }
+  // Possibly move some logic to data processing in the future
+  // Verify that both previous and current edges are highways
+  // and the path is in the forward direction
+  // and there are at most 2 intersecting edges
+  // and there is an intersecting highway edge in the forward direction
+  else if (prev_edge->IsHighway() && curr_edge->IsHighway() &&
+           curr_edge->IsWiderForward(
+               GetTurnDegree(prev_edge->end_heading(), curr_edge->begin_heading())) &&
+           (node->intersecting_edge_size() < 3) &&
+           node->HasWiderForwardTraversableHighwayXEdge(prev_edge->end_heading(),
+                                                        curr_edge->travel_mode())) {
+    return true;
+  }
 
   return false;
 }
@@ -2016,12 +2029,13 @@ bool ManeuversBuilder::IsIntersectingForwardEdge(int node_index,
       return true;
     }
     // if path edge is forward
-    // and forward traversable intersecting edge exists
+    // and forward traversable significant road class intersecting edge exists
     // and path edge is not the straightest
     // then return true
     else if (curr_edge->IsForward(turn_degree) &&
-             node->HasForwardTraversableIntersectingEdge(prev_edge->end_heading(),
-                                                         prev_edge->travel_mode()) &&
+             node->HasForwardTraversableSignificantRoadClassXEdge(prev_edge->end_heading(),
+                                                                  prev_edge->travel_mode(),
+                                                                  prev_edge->road_class()) &&
              !curr_edge->IsStraightest(turn_degree,
                                        node->GetStraightestTraversableIntersectingEdgeTurnDegree(
                                            prev_edge->end_heading(), prev_edge->travel_mode()))) {
