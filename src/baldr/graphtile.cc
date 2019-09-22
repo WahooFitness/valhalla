@@ -68,8 +68,9 @@ GraphTile::GraphTile(const std::string& tile_dir, const GraphId& graphid, Custom
 
     if (graphtile_) {
       Initialize(graphid, graphtile_->data(), graphtile_->size());
-      return;
     }
+
+    return;
   }
 
   std::ifstream file(file_location, std::ios::in | std::ios::binary | std::ios::ate);
