@@ -103,15 +103,19 @@ struct enhancer_stats {
  * @param  density       Relative road density.
  * @param  urban_rc_speed Array of default speeds vs. road class for urban areas
  * @param  rc_speed Array of default speeds vs. road class
+ * @param  infer_turn_channels flag indicating if we should infer tc.
  *
  */
-void UpdateSpeed(DirectedEdge& directededge, const uint32_t density, const uint32_t* urban_rc_speed) {
+void UpdateSpeed(DirectedEdge& directededge,
+                 const uint32_t density,
+                 const uint32_t* urban_rc_speed,
+                 bool infer_turn_channels) {
 
   // Update speed on ramps (if not a tagged speed) and turn channels
   if (directededge.link()) {
     uint32_t speed = directededge.speed();
     Use use = directededge.use();
-    if (use == Use::kTurnChannel) {
+    if (use == Use::kTurnChannel && infer_turn_channels) {
       speed = static_cast<uint32_t>((speed * kTurnChannelFactor) + 0.5f);
     } else if ((use == Use::kRamp) && (directededge.speed_type() != SpeedType::kTagged)) {
       // If no tagged speed set ramp speed to slightly lower than speed
@@ -372,7 +376,6 @@ bool ProcessLanes(bool isLeft, bool endOnTurn, std::vector<uint16_t>& enhanced_t
 // Enhance the Turn lanes (if needed) and add them to the tile.
 void UpdateTurnLanes(const OSMData& osmdata,
                      const uint32_t idx,
-                     bool is_next_edge_internal,
                      DirectedEdge& directededge,
                      NodeInfo& startnodeinfo,
                      GraphTileBuilder& tilebuilder,
@@ -859,7 +862,8 @@ void GetHeadings(GraphTileBuilder& tile, NodeInfo& nodeinfo, uint32_t ntrans) {
 bool IsNextEdgeInternal(const DirectedEdge directededge,
                         GraphTileBuilder& tilebuilder,
                         GraphReader& reader,
-                        std::mutex& lock) {
+                        std::mutex& lock,
+                        bool infer_internal_intersections) {
   // Get the tile at the startnode
   GraphTileBuilder tile = tilebuilder;
   // Get the tile at the end node. and find inbound heading of the candidate
@@ -898,8 +902,12 @@ bool IsNextEdgeInternal(const DirectedEdge directededge,
     // check if it is internal.
     if (tilebuilder.edgeinfo(directededge.edgeinfo_offset()).wayid() ==
         tile.edgeinfo(diredge.edgeinfo_offset()).wayid()) {
-      return IsIntersectionInternal(&tile, reader, lock, directededge.endnode(), nodeinfo, diredge,
-                                    i);
+
+      if (!infer_internal_intersections)
+        return diredge.internal();
+      else
+        return IsIntersectionInternal(&tile, reader, lock, directededge.endnode(), nodeinfo, diredge,
+                                      i);
     }
   }
   return false;
@@ -1240,7 +1248,8 @@ uint32_t GetStopImpact(uint32_t from,
     } else if (count > 3) {
       stop_impact += 2;
     }
-  } else if (edges[from].use() == Use::kRamp && edges[to].use() != Use::kRamp) {
+  } else if (edges[from].use() == Use::kRamp && edges[to].use() != Use::kRamp &&
+             !edges[from].internal() && !edges[to].internal()) {
     // Increase stop impact on merge
     if (is_sharp) {
       stop_impact += 3;
@@ -1249,6 +1258,7 @@ uint32_t GetStopImpact(uint32_t from,
     } else {
       stop_impact += 2;
     }
+
   } else if (edges[from].use() == Use::kTurnChannel) {
     // Penalize sharp turns
     if (is_sharp) {
@@ -1395,6 +1405,13 @@ void enhance(const boost::property_tree::ptree& pt,
   sequence<OSMAccess> access_tags(access_file, false);
 
   auto database = pt.get_optional<std::string>("admin");
+  bool infer_internal_intersections =
+      pt.get<bool>("data_processing.infer_internal_intersections", true);
+
+  bool infer_turn_channels = pt.get<bool>("data_processing.infer_turn_channels", true);
+
+  bool apply_country_overrides = pt.get<bool>("data_processing.apply_country_overrides", true);
+
   // Initialize the admin DB (if it exists)
   sqlite3* admin_db_handle = database ? GetDBHandle(*database) : nullptr;
   if (!database) {
@@ -1578,8 +1595,7 @@ void enhance(const boost::property_tree::ptree& pt,
         }
 
         // only process country access logic if the iso country codes match.
-        if (country_code == end_node_code) {
-
+        if (apply_country_overrides && country_code == end_node_code) {
           // country access logic.
           // if the (auto, bike, foot, etc) tag flag is set in the OSMAccess
           // struct, then this means that it has been set by a user of the
@@ -1678,7 +1694,7 @@ void enhance(const boost::property_tree::ptree& pt,
         }
 
         // Update speed.
-        UpdateSpeed(directededge, density, urban_rc_speed);
+        UpdateSpeed(directededge, density, urban_rc_speed, infer_turn_channels);
 
         // Update the named flag
         auto names = tilebuilder.edgeinfo(directededge.edgeinfo_offset()).GetNamesAndTypes();
@@ -1699,39 +1715,32 @@ void enhance(const boost::property_tree::ptree& pt,
           ProcessEdgeTransitions(j, directededge, edges, ntrans, nodeinfo, stats);
         }
 
-        // Check for not_thru edge (only on low importance edges). Exclude
-        // transit edges
-        if (directededge.classification() > RoadClass::kTertiary) {
-          if (IsNotThruEdge(reader, lock, startnode, directededge)) {
-            directededge.set_not_thru(true);
-            stats.not_thru++;
-          }
-        }
-
-        // since the internal flag is set, we are at either the prior or the next edge and we need to
+        // since the not thru flag is set, we are at either the prior or the next edge and we need to
         // see if we have an internal edge.
-        bool is_next_edge_internal = false;
-
-        if (directededge.internal() && directededge.turnlanes()) {
+        if (directededge.not_thru() && directededge.turnlanes()) {
 
           // get the outbound edges to the node
           // find the edge that has the same wayid as the current DE
           // if it is internal, then add turn lanes for this edge and not the internal one
           // if not internal, then do not add turn lanes for this DE and leave them on the next one.
-          if (!IsNextEdgeInternal(directededge, tilebuilder, reader, lock)) {
+          if (!IsNextEdgeInternal(directededge, tilebuilder, reader, lock,
+                                  infer_internal_intersections)) {
             directededge.set_turnlanes(false);
-          } else
-            is_next_edge_internal = true;
+          }
         }
 
         // may have been temporarily set in the builder.
-        directededge.set_internal(false);
+        directededge.set_not_thru(false);
 
         // Test if an internal intersection edge. Must do this after setting
         // opposing edge index
-        if (IsIntersectionInternal(&tilebuilder, reader, lock, startnode, nodeinfo, directededge,
+        if (infer_internal_intersections &&
+            IsIntersectionInternal(&tilebuilder, reader, lock, startnode, nodeinfo, directededge,
                                    j)) {
           directededge.set_internal(true);
+        }
+
+        if (directededge.internal()) {
           // never set turnlanes on an internal edge.
           directededge.set_turnlanes(false);
           stats.internalcount++;
@@ -1740,8 +1749,17 @@ void enhance(const boost::property_tree::ptree& pt,
         // Enhance and add turn lanes if not an internal edge.
         if (!directededge.internal() && directededge.turnlanes()) {
           // Update turn lanes.
-          UpdateTurnLanes(osmdata, nodeinfo.edge_index() + j, is_next_edge_internal, directededge,
-                          nodeinfo, tilebuilder, reader, lock, turn_lanes);
+          UpdateTurnLanes(osmdata, nodeinfo.edge_index() + j, directededge, nodeinfo, tilebuilder,
+                          reader, lock, turn_lanes);
+        }
+
+        // Check for not_thru edge (only on low importance edges). Exclude
+        // transit edges
+        if (directededge.classification() > RoadClass::kTertiary) {
+          if (IsNotThruEdge(reader, lock, startnode, directededge)) {
+            directededge.set_not_thru(true);
+            stats.not_thru++;
+          }
         }
 
         // Update access restrictions (update weight units)
@@ -1801,7 +1819,7 @@ void enhance(const boost::property_tree::ptree& pt,
 
     // Check if we need to clear the tile cache
     if (reader.OverCommitted()) {
-      reader.Clear();
+      reader.Trim();
     }
     lock.unlock();
   }

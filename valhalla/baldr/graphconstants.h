@@ -1,6 +1,7 @@
 #ifndef VALHALLA_BALDR_GRAPHCONSTANTS_H_
 #define VALHALLA_BALDR_GRAPHCONSTANTS_H_
 
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -15,6 +16,10 @@ constexpr uint32_t kMaxOSMWayId = 4294967295;
 constexpr uint32_t kMaxGraphTileId = 4194303;
 // Maximum id/index within a tile. 21 bits
 constexpr uint32_t kMaxGraphId = 2097151;
+
+// A value to use for invalid latitude/longitudes (i.e. uninitialized)
+constexpr float kInvalidLatitude = std::numeric_limits<float>::max();
+constexpr float kInvalidLongitude = std::numeric_limits<float>::max();
 
 // Access bit field constants. Access in directed edge allows 12 bits.
 constexpr uint16_t kAutoAccess = 1;
@@ -77,6 +82,15 @@ constexpr uint32_t kMaxDensity = 15;
 // so it should be set as low as is reasonable. Speeds above this in OSM are
 // clamped to this maximum value.
 constexpr uint32_t kMaxSpeedKph = 140; // ~85 MPH
+
+// Minimum speed. This is a stop gap for dubious traffic data. While its possible
+// to measure a probe going this slow via stop and go traffic over a long enough
+// stretch, its unlikely to be good signal below this value
+constexpr uint32_t kMinSpeedKph = 5; // ~3 MPH
+
+inline bool valid_speed(float speed) {
+  return speed > kMinSpeedKph && speed < kMaxSpeedKph;
+}
 
 // Maximum ferry speed
 constexpr uint32_t kMaxFerrySpeedKph = 40; // 21 knots
@@ -511,7 +525,8 @@ inline float GetOffsetForHeading(RoadClass road_class, Use use) {
     case Use::kBridleway: {
       offset *= 0.5f;
     }
-    default: { break; }
+    default:
+      break;
   }
 
   return offset;
@@ -535,6 +550,20 @@ enum class CalendarExceptionType : uint8_t {
   kAdded = 1,  // Service added for the specified date
   kRemoved = 2 // Service removed for the specified date
 };
+
+// --------------------- Traffic information ------------------------ //
+
+// Traffic type constants
+constexpr uint8_t kNoFlowMask = 0;
+constexpr uint8_t kFreeFlowMask = 1;
+constexpr uint8_t kConstrainedFlowMask = 2;
+constexpr uint8_t kPredictedFlowMask = 4;
+constexpr uint8_t kCurrentFlowMask = 8;
+constexpr uint8_t kDefaultFlowMask =
+    kFreeFlowMask | kConstrainedFlowMask | kPredictedFlowMask | kCurrentFlowMask;
+constexpr uint32_t kFreeFlowSecondOfDay = 60 * 60 * 0;         // midnight
+constexpr uint32_t kConstrainedFlowSecondOfDay = 60 * 60 * 12; // noon
+constexpr uint32_t kInvalidSecondsOfWeek = -1;                 // invalid
 
 } // namespace baldr
 } // namespace valhalla

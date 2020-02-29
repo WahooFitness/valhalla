@@ -303,6 +303,9 @@ json::ArrayPtr serialize_edges(const AttributesController& controller,
         if (node.has_time_zone()) {
           end_node_map->emplace("time_zone", node.time_zone());
         }
+        if (node.has_transition_time()) {
+          end_node_map->emplace("transition_time", json::fp_t{node.transition_time(), 3});
+        }
 
         // TODO transit info at node
         // kNodeTransitStopInfoType = "node.transit_stop_info.type";
@@ -500,7 +503,7 @@ std::string serializeTraceAttributes(
 
   // Add units, if specified
   if (request.options().has_units()) {
-    json->emplace("units", valhalla::Options_Units_Name(request.options().units()));
+    json->emplace("units", valhalla::Options_Units_Enum_Name(request.options().units()));
   }
 
   // Loop over all results to process the best path

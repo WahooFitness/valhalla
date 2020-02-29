@@ -3,6 +3,7 @@
 
 #include "baldr/accessrestriction.h"
 #include "baldr/directededge.h"
+#include "baldr/graphconstants.h"
 #include "baldr/nodeinfo.h"
 #include "midgard/constants.h"
 #include "midgard/util.h"
@@ -162,7 +163,8 @@ public:
                        const baldr::GraphTile*& tile,
                        const baldr::GraphId& edgeid,
                        const uint64_t current_time,
-                       const uint32_t tz_index) const;
+                       const uint32_t tz_index,
+                       bool& time_restricted) const;
 
   /**
    * Checks if access is allowed for an edge on the reverse path
@@ -188,7 +190,8 @@ public:
                               const baldr::GraphTile*& tile,
                               const baldr::GraphId& opp_edgeid,
                               const uint64_t current_time,
-                              const uint32_t tz_index) const;
+                              const uint32_t tz_index,
+                              bool& has_time_restrictions) const;
 
   /**
    * Checks if access is allowed for the provided node. Node access can
@@ -201,13 +204,29 @@ public:
   }
 
   /**
+   * Only transit costings are valid for this method call, hence we throw
+   * @param edge
+   * @param departure
+   * @param curr_time
+   * @return
+   */
+  virtual Cost EdgeCost(const baldr::DirectedEdge* edge,
+                        const baldr::TransitDeparture* departure,
+                        const uint32_t curr_time) const {
+    throw std::runtime_error("MotorcycleCost::EdgeCost does not support transit edges");
+  }
+
+  /**
    * Get the cost to traverse the specified directed edge. Cost includes
    * the time (seconds) to traverse the edge.
-   * @param   edge  Pointer to a directed edge.
-   * @param   speed A speed for a road segment/edge.
+   * @param  edge      Pointer to a directed edge.
+   * @param  tile      Current tile.
+   * @param  seconds   Time of week in seconds.
    * @return  Returns the cost and time (seconds)
    */
-  virtual Cost EdgeCost(const baldr::DirectedEdge* edge, const uint32_t speed) const;
+  virtual Cost EdgeCost(const baldr::DirectedEdge* edge,
+                        const baldr::GraphTile* tile,
+                        const uint32_t seconds) const;
 
   /**
    * Returns the cost to make the transition from the predecessor edge.
@@ -222,7 +241,7 @@ public:
   virtual Cost TransitionCost(const baldr::DirectedEdge* edge,
                               const baldr::NodeInfo* node,
                               const EdgeLabel& pred,
-                              const bool has_traffic = false) const;
+                              const bool has_traffic) const;
 
   /**
    * Returns the cost to make the transition from the predecessor edge
@@ -238,7 +257,7 @@ public:
                                      const baldr::NodeInfo* node,
                                      const baldr::DirectedEdge* pred,
                                      const baldr::DirectedEdge* edge,
-                                     const bool has_traffic = false) const;
+                                     const bool has_traffic) const;
 
   /**
    * Get the cost factor for A* heuristics. This factor is multiplied
@@ -382,7 +401,8 @@ bool MotorcycleCost::Allowed(const baldr::DirectedEdge* edge,
                              const baldr::GraphTile*& tile,
                              const baldr::GraphId& edgeid,
                              const uint64_t current_time,
-                             const uint32_t tz_index) const {
+                             const uint32_t tz_index,
+                             bool& has_time_restrictions) const {
   // Check access, U-turn, and simple turn restriction.
   // Allow U-turns at dead-end nodes.
   if (!(edge->forwardaccess() & kMotorcycleAccess) ||
@@ -391,26 +411,11 @@ bool MotorcycleCost::Allowed(const baldr::DirectedEdge* edge,
       (!allow_destination_only_ && !pred.destonly() && edge->destonly())) {
     return false;
   }
-  if (edge->access_restriction()) {
-    const std::vector<baldr::AccessRestriction>& restrictions =
-        tile->GetAccessRestrictions(edgeid.id(), kMotorcycleAccess);
-    for (const auto& restriction : restrictions) {
-      if (restriction.type() == AccessType::kTimedAllowed) {
-        // allowed at this range or allowed all the time
-        return (current_time && restriction.value())
-                   ? (edge->surface() <= kMinimumMotorcycleSurface &&
-                      IsRestricted(restriction.value(), current_time, tz_index))
-                   : true;
-      } else if (restriction.type() == AccessType::kTimedDenied) {
-        // not allowed at this range or restricted all the time
-        return (current_time && restriction.value())
-                   ? (edge->surface() <= kMinimumMotorcycleSurface &&
-                      !IsRestricted(restriction.value(), current_time, tz_index))
-                   : false;
-      }
-    }
+  if (edge->surface() > kMinimumMotorcycleSurface) {
+    return false;
   }
-  return edge->surface() <= kMinimumMotorcycleSurface;
+  return DynamicCost::EvaluateRestrictions(kMotorcycleAccess, edge, tile, edgeid, current_time,
+                                           tz_index, has_time_restrictions);
 }
 
 // Checks if access is allowed for an edge on the reverse path (from
@@ -421,7 +426,8 @@ bool MotorcycleCost::AllowedReverse(const baldr::DirectedEdge* edge,
                                     const baldr::GraphTile*& tile,
                                     const baldr::GraphId& opp_edgeid,
                                     const uint64_t current_time,
-                                    const uint32_t tz_index) const {
+                                    const uint32_t tz_index,
+                                    bool& has_time_restrictions) const {
   // Check access, U-turn, and simple turn restriction.
   // Allow U-turns at dead-end nodes.
   if (!(opp_edge->forwardaccess() & kMotorcycleAccess) ||
@@ -431,29 +437,18 @@ bool MotorcycleCost::AllowedReverse(const baldr::DirectedEdge* edge,
     return false;
   }
 
-  if (edge->access_restriction()) {
-    const std::vector<baldr::AccessRestriction>& restrictions =
-        tile->GetAccessRestrictions(opp_edgeid.id(), kMotorcycleAccess);
-    for (const auto& restriction : restrictions) {
-      if (restriction.type() == AccessType::kTimedAllowed) {
-        // allowed at this range or allowed all the time
-        return (current_time && restriction.value())
-                   ? (edge->surface() <= kMinimumMotorcycleSurface &&
-                      IsRestricted(restriction.value(), current_time, tz_index))
-                   : true;
-      } else if (restriction.type() == AccessType::kTimedDenied) {
-        // not allowed at this range or restricted all the time
-        return (current_time && restriction.value())
-                   ? (edge->surface() <= kMinimumMotorcycleSurface &&
-                      !IsRestricted(restriction.value(), current_time, tz_index))
-                   : false;
-      }
-    }
+  if (opp_edge->surface() > kMinimumMotorcycleSurface) {
+    return false;
   }
-  return opp_edge->surface() <= kMinimumMotorcycleSurface;
+  return DynamicCost::EvaluateRestrictions(kMotorcycleAccess, edge, tile, opp_edgeid, current_time,
+                                           tz_index, has_time_restrictions);
 }
 
-Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge, const uint32_t speed) const {
+Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
+                              const baldr::GraphTile* tile,
+                              const uint32_t seconds) const {
+  auto speed = tile->GetSpeed(edge, flow_mask_, seconds);
+
   // Special case for travel on a ferry
   if (edge->use() == Use::kFerry) {
     // Use the edge speed (should be the speed of the ferry)
@@ -492,6 +487,7 @@ Cost MotorcycleCost::TransitionCost(const baldr::DirectedEdge* edge,
                       ? kRightSideTurnCosts[static_cast<uint32_t>(edge->turntype(idx))]
                       : kLeftSideTurnCosts[static_cast<uint32_t>(edge->turntype(idx))];
     }
+
     if ((edge->use() != Use::kRamp && pred.use() == Use::kRamp) ||
         (edge->use() == Use::kRamp && pred.use() != Use::kRamp)) {
       turn_cost += 1.5f;
@@ -499,7 +495,14 @@ Cost MotorcycleCost::TransitionCost(const baldr::DirectedEdge* edge,
         turn_cost += 0.5f;
     }
 
-    float seconds = trans_density_factor_[node->density()] * edge->stopimpact(idx) * turn_cost;
+    // Separate time and penalty when traffic is present. With traffic, edge speeds account for
+    // much of the intersection transition time (TODO - evaluate different elapsed time settings).
+    // Still want to add a penalty so routes avoid high cost intersections.
+    float seconds = turn_cost * edge->stopimpact(idx);
+    // Apply density factor penality if there isnt traffic on this edge or youre not using traffic
+    if (!edge->has_flow_speed() || flow_mask_ == 0)
+      seconds *= trans_density_factor_[node->density()];
+
     c.cost += seconds;
     c.secs += seconds;
   }
@@ -529,6 +532,7 @@ Cost MotorcycleCost::TransitionCostReverse(const uint32_t idx,
                       ? kRightSideTurnCosts[static_cast<uint32_t>(edge->turntype(idx))]
                       : kLeftSideTurnCosts[static_cast<uint32_t>(edge->turntype(idx))];
     }
+
     if ((edge->use() != Use::kRamp && pred->use() == Use::kRamp) ||
         (edge->use() == Use::kRamp && pred->use() != Use::kRamp)) {
       turn_cost += 1.5f;
@@ -536,7 +540,14 @@ Cost MotorcycleCost::TransitionCostReverse(const uint32_t idx,
         turn_cost += 0.5f;
     }
 
-    float seconds = trans_density_factor_[node->density()] * edge->stopimpact(idx) * turn_cost;
+    // Separate time and penalty when traffic is present. With traffic, edge speeds account for
+    // much of the intersection transition time (TODO - evaluate different elapsed time settings).
+    // Still want to add a penalty so routes avoid high cost intersections.
+    float seconds = turn_cost * edge->stopimpact(idx);
+    // Apply density factor penality if there isnt traffic on this edge or youre not using traffic
+    if (!edge->has_flow_speed() || flow_mask_ == 0)
+      seconds *= trans_density_factor_[node->density()];
+
     c.cost += seconds;
     c.secs += seconds;
   }
@@ -549,6 +560,9 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
   auto json_costing_options = rapidjson::get_child_optional(doc, costing_options_key.c_str());
 
   if (json_costing_options) {
+    // TODO: farm more common stuff out to parent class
+    ParseCostOptions(*json_costing_options, pbf_costing_options);
+
     // If specified, parse json and set pbf values
 
     // maneuver_penalty
@@ -620,7 +634,6 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
     pbf_costing_options->set_use_trails(
         kUseTrailsRange(rapidjson::get_optional<float>(*json_costing_options, "/use_trails")
                             .get_value_or(kDefaultUseTrails)));
-
   } else {
     // Set pbf values to defaults
     pbf_costing_options->set_maneuver_penalty(kDefaultManeuverPenalty);
@@ -637,6 +650,7 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
     pbf_costing_options->set_use_highways(kDefaultUseHighways);
     pbf_costing_options->set_use_tolls(kDefaultUseTolls);
     pbf_costing_options->set_use_trails(kDefaultUseTrails);
+    pbf_costing_options->set_flow_mask(kDefaultFlowMask);
   }
 }
 
@@ -684,7 +698,7 @@ std::uniform_real_distribution<T>* make_distributor_from_range(const ranged_defa
   return new std::uniform_real_distribution<T>(range.min - rangeLength, range.max + rangeLength);
 }
 
-void testMotorcycleCostParams() {
+TEST(MotorcycleCost, testMotorcycleCostParams) {
   constexpr unsigned testIterations = 250;
   constexpr unsigned seed = 0;
   std::mt19937 generator(seed);
@@ -695,20 +709,16 @@ void testMotorcycleCostParams() {
   distributor.reset(make_distributor_from_range(kManeuverPenaltyRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("maneuver_penalty", (*distributor)(generator)));
-    if (ctorTester->maneuver_penalty_ < kManeuverPenaltyRange.min ||
-        ctorTester->maneuver_penalty_ > kManeuverPenaltyRange.max) {
-      throw std::runtime_error("maneuver_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->maneuver_penalty_,
+                test::IsBetween(kManeuverPenaltyRange.min, kManeuverPenaltyRange.max));
   }
 
   // alley_penalty_
   distributor.reset(make_distributor_from_range(kAlleyPenaltyRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("alley_penalty", (*distributor)(generator)));
-    if (ctorTester->alley_penalty_ < kAlleyPenaltyRange.min ||
-        ctorTester->alley_penalty_ > kAlleyPenaltyRange.max) {
-      throw std::runtime_error("alley_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->alley_penalty_,
+                test::IsBetween(kAlleyPenaltyRange.min, kAlleyPenaltyRange.max));
   }
 
   // destination_only_penalty_
@@ -716,50 +726,40 @@ void testMotorcycleCostParams() {
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(
         make_motorcyclecost_from_json("destination_only_penalty", (*distributor)(generator)));
-    if (ctorTester->destination_only_penalty_ < kDestinationOnlyPenaltyRange.min ||
-        ctorTester->destination_only_penalty_ > kDestinationOnlyPenaltyRange.max) {
-      throw std::runtime_error("destination_only_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->destination_only_penalty_,
+                test::IsBetween(kDestinationOnlyPenaltyRange.min, kDestinationOnlyPenaltyRange.max));
   }
 
   // gate_cost_ (Cost.secs)
   distributor.reset(make_distributor_from_range(kGateCostRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("gate_cost", (*distributor)(generator)));
-    if (ctorTester->gate_cost_.secs < kGateCostRange.min ||
-        ctorTester->gate_cost_.secs > kGateCostRange.max) {
-      throw std::runtime_error("gate_cost_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->gate_cost_.secs, test::IsBetween(kGateCostRange.min, kGateCostRange.max));
   }
 
   // gate_penalty_ (Cost.cost)
   distributor.reset(make_distributor_from_range(kGatePenaltyRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("gate_penalty", (*distributor)(generator)));
-    if (ctorTester->gate_cost_.cost < kGatePenaltyRange.min ||
-        ctorTester->gate_cost_.cost > kGatePenaltyRange.max + kDefaultGateCost) {
-      throw std::runtime_error("gate_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->gate_cost_.cost,
+                test::IsBetween(kGatePenaltyRange.min, kGatePenaltyRange.max + kDefaultGateCost));
   }
 
   // toll_booth_cost_ (Cost.secs)
   distributor.reset(make_distributor_from_range(kTollBoothCostRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("toll_booth_cost", (*distributor)(generator)));
-    if (ctorTester->toll_booth_cost_.secs < kTollBoothCostRange.min ||
-        ctorTester->toll_booth_cost_.secs > kTollBoothCostRange.max) {
-      throw std::runtime_error("toll_booth_cost_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->toll_booth_cost_.secs,
+                test::IsBetween(kTollBoothCostRange.min, kTollBoothCostRange.max));
   }
 
   // tollbooth_penalty_ (Cost.cost)
   distributor.reset(make_distributor_from_range(kTollBoothPenaltyRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("toll_booth_penalty", (*distributor)(generator)));
-    if (ctorTester->toll_booth_cost_.cost < kTollBoothPenaltyRange.min ||
-        ctorTester->toll_booth_cost_.cost > kTollBoothPenaltyRange.max + kDefaultTollBoothCost) {
-      throw std::runtime_error("tollbooth_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->toll_booth_cost_.cost,
+                test::IsBetween(kTollBoothPenaltyRange.min,
+                                kTollBoothPenaltyRange.max + kDefaultTollBoothCost));
   }
 
   // country_crossing_cost_ (Cost.secs)
@@ -767,10 +767,8 @@ void testMotorcycleCostParams() {
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(
         make_motorcyclecost_from_json("country_crossing_cost", (*distributor)(generator)));
-    if (ctorTester->country_crossing_cost_.secs < kCountryCrossingCostRange.min ||
-        ctorTester->country_crossing_cost_.secs > kCountryCrossingCostRange.max) {
-      throw std::runtime_error("country_crossing_cost_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->country_crossing_cost_.secs,
+                test::IsBetween(kCountryCrossingCostRange.min, kCountryCrossingCostRange.max));
   }
 
   // country_crossing_penalty_ (Cost.cost)
@@ -778,21 +776,17 @@ void testMotorcycleCostParams() {
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(
         make_motorcyclecost_from_json("country_crossing_penalty", (*distributor)(generator)));
-    if (ctorTester->country_crossing_cost_.cost < kCountryCrossingPenaltyRange.min ||
-        ctorTester->country_crossing_cost_.cost >
-            kCountryCrossingPenaltyRange.max + kDefaultCountryCrossingCost) {
-      throw std::runtime_error("country_crossing_penalty_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->country_crossing_cost_.cost,
+                test::IsBetween(kCountryCrossingPenaltyRange.min,
+                                kCountryCrossingPenaltyRange.max + kDefaultCountryCrossingCost));
   }
 
   // ferry_cost_ (Cost.secs)
   distributor.reset(make_distributor_from_range(kFerryCostRange));
   for (unsigned i = 0; i < testIterations; ++i) {
     ctorTester.reset(make_motorcyclecost_from_json("ferry_cost", (*distributor)(generator)));
-    if (ctorTester->ferry_transition_cost_.secs < kFerryCostRange.min ||
-        ctorTester->ferry_transition_cost_.secs > kFerryCostRange.max) {
-      throw std::runtime_error("ferry_cost_ is not within it's range");
-    }
+    EXPECT_THAT(ctorTester->ferry_transition_cost_.secs,
+                test::IsBetween(kFerryCostRange.min, kFerryCostRange.max));
   }
 
   /*
@@ -800,49 +794,37 @@ void testMotorcycleCostParams() {
    distributor.reset(make_distributor_from_range(kUseFerryRange));
    for (unsigned i = 0; i < testIterations; ++i) {
      ctorTester.reset(make_motorcyclecost_from_json("use_ferry", (*distributor)(generator)));
-     if (ctorTester->use_ferry < kUseFerryRange.min || ctorTester->use_ferry > kUseFerryRange.max) {
-       throw std::runtime_error("use_ferry is not within it's range");
-     }
+EXPECT_THAT(ctorTester->use_ferry , test::IsBetween( kUseFerryRange.min ,kUseFerryRange.max));
    }
 
     // use_highways
     distributor.reset(make_distributor_from_range(kUseHighwaysRange));
     for (unsigned i = 0; i < testIterations; ++i) {
       ctorTester.reset(make_motorcyclecost_from_json("use_highways", (*distributor)(generator)));
-      if (ctorTester->use_highways < kUseHighwaysRange.min ||
-          ctorTester->use_highways > kUseHighwaysRange.max) {
-        throw std::runtime_error("use_highways is not within it's range");
-      }
+EXPECT_THAT(ctorTester->use_highways , test::IsBetween( kUseHighwaysRange.min
+,kUseHighwaysRange.max));
     }
 
      // use_trails
      distributor.reset(make_distributor_from_range(kUseTrailsRange));
      for (unsigned i = 0; i < testIterations; ++i) {
        ctorTester.reset(make_motorcyclecost_from_json("use_trails", (*distributor)(generator)));
-       if (ctorTester->use_trails < kUseTrailsRange.min ||
-           ctorTester->use_trails > kUseTrailsRange.max) {
-         throw std::runtime_error("use_trails is not within it's range");
-       }
+EXPECT_THAT(ctorTester->use_trails , test::IsBetween( kUseTrailsRange.min ,kUseTrailsRange.max));
      }
 
    // use_tolls
    distributor.reset(make_distributor_from_range(kUseTollsRange));
    for (unsigned i = 0; i < testIterations; ++i) {
      ctorTester.reset(make_motorcyclecost_from_json("use_tolls", (*distributor)(generator)));
-     if (ctorTester->use_tolls < kUseTollsRange.min || ctorTester->use_tolls > kUseTollsRange.max) {
-       throw std::runtime_error("use_tolls is not within it's range");
-     }
+EXPECT_THAT(ctorTester->use_tolls , test::IsBetween( kUseTollsRange.min ,kUseTollsRange.max));
    }
    **/
 }
 } // namespace
 
-int main() {
-  test::suite suite("costing");
-
-  suite.test(TEST_CASE(testMotorcycleCostParams));
-
-  return suite.tear_down();
+int main(int argc, char* argv[]) {
+  testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
 
 #endif

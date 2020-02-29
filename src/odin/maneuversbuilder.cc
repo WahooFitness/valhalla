@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -36,27 +37,20 @@ using namespace valhalla::odin;
 namespace {
 
 constexpr float kShortForkThreshold = 0.05f; // Kilometers
+constexpr uint32_t kOverlayEdgeMax = 5;      // Maximum number of edges to look for matching overlay
 
-void SortExitSignList(std::vector<Sign>* signs) {
-  // Sort signs by descending consecutive count order
-  std::sort(signs->begin(), signs->end(),
-            [](Sign a, Sign b) { return b.consecutive_count() < a.consecutive_count(); });
+std::vector<std::string> split(const std::string& source, char delimiter) {
+  std::vector<std::string> tokens;
+  std::string token;
+  std::istringstream tokenStream(source);
+  while (std::getline(tokenStream, token, delimiter)) {
+    tokens.push_back(token);
+  }
+  return tokens;
 }
 
-void CountAndSortExitSignList(std::vector<Sign>* prev_signs, std::vector<Sign>* curr_signs) {
-  // Increment count for consecutive exit signs
-  for (Sign& curr_sign : *curr_signs) {
-    for (Sign& prev_sign : *prev_signs) {
-      if (curr_sign.text() == prev_sign.text()) {
-        curr_sign.set_consecutive_count(curr_sign.consecutive_count() + 1);
-        prev_sign.set_consecutive_count(curr_sign.consecutive_count());
-      }
-    }
-  }
-
-  // Sort the previous and current exit signs by descending consecutive count
-  SortExitSignList(prev_signs);
-  SortExitSignList(curr_signs);
+bool is_pair(const std::vector<std::string>& tokens) {
+  return (tokens.size() == 2);
 }
 
 } // namespace
@@ -75,7 +69,7 @@ std::list<Maneuver> ManeuversBuilder::Build() {
 #ifdef LOGGING_LEVEL_TRACE
   int man_id = 1;
   LOG_TRACE("############################################");
-  LOG_TRACE("MANEUVERS");
+  LOG_TRACE("INITIAL MANEUVERS");
   for (const Maneuver& maneuver : maneuvers) {
     LOG_TRACE("---------------------------------------------");
     LOG_TRACE(std::to_string(man_id++) + ":  ");
@@ -87,20 +81,8 @@ std::list<Maneuver> ManeuversBuilder::Build() {
   // Combine maneuvers
   Combine(maneuvers);
 
-#ifdef LOGGING_LEVEL_TRACE
-  int combined_man_id = 1;
-  LOG_TRACE("############################################");
-  LOG_TRACE("COMBINED MANEUVERS");
-  for (const Maneuver& maneuver : maneuvers) {
-    LOG_TRACE("---------------------------------------------");
-    LOG_TRACE(std::to_string(combined_man_id++) + ":  ");
-    LOG_TRACE(std::string("  maneuver_PARAMETERS=") + maneuver.ToParameterString());
-    LOG_TRACE(std::string("  maneuver=") + maneuver.ToString());
-  }
-#endif
-
   // Calculate the consecutive exit sign count and then sort
-  CountAndSortExitSigns(maneuvers);
+  CountAndSortSigns(maneuvers);
 
   // Confirm maneuver type assignment
   ConfirmManeuverTypeAssignment(maneuvers);
@@ -116,6 +98,21 @@ std::list<Maneuver> ManeuversBuilder::Build() {
 
   // Process the turn lanes
   ProcessTurnLanes(maneuvers);
+
+  // Process the guidance view junctions
+  ProcessGuidanceViewJunctions(maneuvers);
+
+#ifdef LOGGING_LEVEL_TRACE
+  int final_man_id = 1;
+  LOG_TRACE("############################################");
+  LOG_TRACE("FINAL MANEUVERS");
+  for (const Maneuver& maneuver : maneuvers) {
+    LOG_TRACE("---------------------------------------------");
+    LOG_TRACE(std::to_string(final_man_id++) + ":  ");
+    LOG_TRACE(std::string("  maneuver_PARAMETERS=") + maneuver.ToParameterString());
+    LOG_TRACE(std::string("  maneuver=") + maneuver.ToString());
+  }
+#endif
 
 #ifdef LOGGING_LEVEL_DEBUG
   std::vector<PointLL> shape = midgard::decode<std::vector<PointLL>>(trip_path_->shape());
@@ -334,6 +331,15 @@ void ManeuversBuilder::Combine(std::list<Maneuver>& maneuvers) {
         ++next_man;
       }
       // Do not combine
+      // if driving side is different
+      else if (curr_man->drive_on_right() != next_man->drive_on_right()) {
+        LOG_TRACE("+++ Do Not Combine: if driving side is different +++");
+        // Update with no combine
+        prev_man = curr_man;
+        curr_man = next_man;
+        ++next_man;
+      }
+      // Do not combine
       // if travel mode is different
       // OR next maneuver is destination
       else if ((curr_man->travel_mode() != next_man->travel_mode()) ||
@@ -545,6 +551,11 @@ ManeuversBuilder::CombineInternalManeuver(std::list<Maneuver>& maneuvers,
   // Set begin shape index
   next_man->set_begin_shape_index(curr_man->begin_shape_index());
 
+  // Set signs, if needed
+  if (curr_man->HasSigns() && !next_man->HasSigns()) {
+    *(next_man->mutable_signs()) = curr_man->signs();
+  }
+
   if (start_man) {
     next_man->set_type(DirectionsLeg_Maneuver_Type_kStart);
   } else {
@@ -590,6 +601,11 @@ ManeuversBuilder::CombineTurnChannelManeuver(std::list<Maneuver>& maneuvers,
 
   // Set begin shape index
   next_man->set_begin_shape_index(curr_man->begin_shape_index());
+
+  // Set signs, if needed
+  if (curr_man->HasSigns() && !next_man->HasSigns()) {
+    *(next_man->mutable_signs()) = curr_man->signs();
+  }
 
   if (start_man) {
     next_man->set_type(DirectionsLeg_Maneuver_Type_kStart);
@@ -650,6 +666,10 @@ ManeuversBuilder::CombineManeuvers(std::list<Maneuver>& maneuvers,
     curr_man->set_portions_toll(true);
   }
 
+  if (next_man->has_time_restrictions()) {
+    curr_man->set_has_time_restrictions(true);
+  }
+
   // If needed, set portions_unpaved
   if (next_man->portions_unpaved()) {
     curr_man->set_portions_unpaved(true);
@@ -663,7 +683,7 @@ ManeuversBuilder::CombineManeuvers(std::list<Maneuver>& maneuvers,
   return maneuvers.erase(next_man);
 }
 
-void ManeuversBuilder::CountAndSortExitSigns(std::list<Maneuver>& maneuvers) {
+void ManeuversBuilder::CountAndSortSigns(std::list<Maneuver>& maneuvers) {
 
   auto prev_man = maneuvers.rbegin();
   auto curr_man = maneuvers.rbegin();
@@ -685,26 +705,51 @@ void ManeuversBuilder::CountAndSortExitSigns(std::list<Maneuver>& maneuvers) {
           }
         }
       }
-      SortExitSignList(prev_man->mutable_signs()->mutable_exit_number_list());
+      Signs::Sort(prev_man->mutable_signs()->mutable_exit_branch_list());
+    }
+    // Increase the branch guide sign consecutive count
+    // if it matches the succeeding named maneuver
+    else if (prev_man->HasGuideBranchSign() && !curr_man->HasGuideSign() &&
+             curr_man->HasStreetNames()) {
+      for (Sign& sign : *(prev_man->mutable_signs()->mutable_guide_branch_list())) {
+        for (const auto& street_name : curr_man->street_names()) {
+          if (sign.text() == street_name->value()) {
+            sign.set_consecutive_count(sign.consecutive_count() + 1);
+          }
+        }
+      }
+      Signs::Sort(prev_man->mutable_signs()->mutable_guide_branch_list());
     }
     // Increase the consecutive count of signs that match their neighbor
-    else if (prev_man->HasExitSign() && curr_man->HasExitSign()) {
+    else if (prev_man->HasSigns() && curr_man->HasSigns()) {
 
       // Process the exit number signs
-      CountAndSortExitSignList(prev_man->mutable_signs()->mutable_exit_number_list(),
-                               curr_man->mutable_signs()->mutable_exit_number_list());
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_exit_number_list(),
+                          curr_man->mutable_signs()->mutable_exit_number_list());
 
       // Process the exit branch signs
-      CountAndSortExitSignList(prev_man->mutable_signs()->mutable_exit_branch_list(),
-                               curr_man->mutable_signs()->mutable_exit_branch_list());
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_exit_branch_list(),
+                          curr_man->mutable_signs()->mutable_exit_branch_list());
 
       // Process the exit toward signs
-      CountAndSortExitSignList(prev_man->mutable_signs()->mutable_exit_toward_list(),
-                               curr_man->mutable_signs()->mutable_exit_toward_list());
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_exit_toward_list(),
+                          curr_man->mutable_signs()->mutable_exit_toward_list());
 
       // Process the exit name signs
-      CountAndSortExitSignList(prev_man->mutable_signs()->mutable_exit_name_list(),
-                               curr_man->mutable_signs()->mutable_exit_name_list());
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_exit_name_list(),
+                          curr_man->mutable_signs()->mutable_exit_name_list());
+
+      // Process the guide branch signs
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_guide_branch_list(),
+                          curr_man->mutable_signs()->mutable_guide_branch_list());
+
+      // Process the guide toward signs
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_guide_toward_list(),
+                          curr_man->mutable_signs()->mutable_guide_toward_list());
+
+      // Process the named junction signs
+      Signs::CountAndSort(prev_man->mutable_signs()->mutable_junction_name_list(),
+                          curr_man->mutable_signs()->mutable_junction_name_list());
     }
 
     // Update iterators
@@ -854,6 +899,9 @@ void ManeuversBuilder::InitializeManeuver(Maneuver& maneuver, int node_index) {
   // Travel mode
   maneuver.set_travel_mode(prev_edge->travel_mode());
 
+  // Driving side
+  maneuver.set_drive_on_right(prev_edge->drive_on_right());
+
   // Vehicle type
   if (prev_edge->has_vehicle_type()) {
     maneuver.set_vehicle_type(prev_edge->vehicle_type());
@@ -948,6 +996,7 @@ void ManeuversBuilder::UpdateManeuver(Maneuver& maneuver, int node_index) {
   maneuver.set_length(maneuver.length() + prev_edge->length());
 
   // Basic time (len/speed on each edge with no stop impact) in seconds
+  // TODO: update GetTime and GetSpeed to double precision
   maneuver.set_basic_time(
       maneuver.basic_time() +
       GetTime(prev_edge->length(), GetSpeed(maneuver.travel_mode(), prev_edge->speed())));
@@ -955,6 +1004,9 @@ void ManeuversBuilder::UpdateManeuver(Maneuver& maneuver, int node_index) {
   // Portions Toll
   if (prev_edge->toll()) {
     maneuver.set_portions_toll(true);
+  }
+  if (prev_edge->has_time_restrictions()) {
+    maneuver.set_has_time_restrictions(true);
   }
 
   // Portions unpaved
@@ -1116,6 +1168,30 @@ void ManeuversBuilder::FinalizeManeuver(Maneuver& maneuver, int node_index) {
       VerbalTextFormatterFactory::Create(trip_path_->GetCountryCode(node_index),
                                          trip_path_->GetStateCode(node_index)));
 
+  // Guide signs
+  if (curr_edge->has_sign()) {
+    // Guide branch
+    for (const auto& guide_onto_street : curr_edge->sign().guide_onto_streets()) {
+      maneuver.mutable_signs()
+          ->mutable_guide_branch_list()
+          ->emplace_back(guide_onto_street.text(), guide_onto_street.is_route_number());
+    }
+
+    // Guide toward
+    for (const auto& guide_toward_location : curr_edge->sign().guide_toward_locations()) {
+      maneuver.mutable_signs()
+          ->mutable_guide_toward_list()
+          ->emplace_back(guide_toward_location.text(), guide_toward_location.is_route_number());
+    }
+
+    // Junction name
+    for (const auto& junction_name : curr_edge->sign().junction_names()) {
+      maneuver.mutable_signs()
+          ->mutable_junction_name_list()
+          ->emplace_back(junction_name.text(), junction_name.is_route_number());
+    }
+  }
+
   // Set the maneuver type
   SetManeuverType(maneuver);
 }
@@ -1200,7 +1276,15 @@ void ManeuversBuilder::SetManeuverType(Maneuver& maneuver, bool none_type_allowe
     LOG_TRACE("ManeuverType=TURN_CHANNNEL");
   }
   // Process exit
-  else if (maneuver.ramp() && prev_edge && (prev_edge->IsHighway() || maneuver.HasExitNumberSign())) {
+  // if maneuver is ramp
+  // and previous edge is a highway or maneuver has an exit number
+  // or previous edge is not a ramp and ramp does not lead to a highway
+  //    and the maneuver relative direction is a keep left or keep right
+  else if (maneuver.ramp() && prev_edge &&
+           (prev_edge->IsHighway() || maneuver.HasExitNumberSign() ||
+            (!prev_edge->IsRampUse() && !RampLeadsToHighway(maneuver) &&
+             ((maneuver.begin_relative_direction() == Maneuver::RelativeDirection::kKeepRight) ||
+              (maneuver.begin_relative_direction() == Maneuver::RelativeDirection::kKeepLeft))))) {
     switch (maneuver.begin_relative_direction()) {
       case Maneuver::RelativeDirection::kKeepRight:
       case Maneuver::RelativeDirection::kRight: {
@@ -1218,8 +1302,13 @@ void ManeuversBuilder::SetManeuverType(Maneuver& maneuver, bool none_type_allowe
         LOG_TRACE(std::string("EXIT RelativeDirection=") +
                   std::to_string(static_cast<int>(maneuver.begin_relative_direction())));
         // TODO: determine how to handle, for now set to right
-        maneuver.set_type(DirectionsLeg_Maneuver_Type_kExitRight);
-        LOG_TRACE("ManeuverType=EXIT_RIGHT");
+        if (maneuver.drive_on_right()) {
+          maneuver.set_type(DirectionsLeg_Maneuver_Type_kExitRight);
+          LOG_TRACE("ManeuverType=EXIT_RIGHT");
+        } else {
+          maneuver.set_type(DirectionsLeg_Maneuver_Type_kExitLeft);
+          LOG_TRACE("ManeuverType=EXIT_LEFT");
+        }
       }
     }
   }
@@ -1269,8 +1358,22 @@ void ManeuversBuilder::SetManeuverType(Maneuver& maneuver, bool none_type_allowe
   }
   // Process merge
   else if (IsMergeManeuverType(maneuver, prev_edge.get(), curr_edge.get())) {
-    maneuver.set_type(DirectionsLeg_Maneuver_Type_kMerge);
-    LOG_TRACE("ManeuverType=MERGE");
+    switch (maneuver.merge_to_relative_direction()) {
+      case Maneuver::RelativeDirection::kKeepRight: {
+        maneuver.set_type(DirectionsLeg_Maneuver_Type_kMergeRight);
+        LOG_TRACE("ManeuverType=MERGE_RIGHT");
+        break;
+      }
+      case Maneuver::RelativeDirection::kKeepLeft: {
+        maneuver.set_type(DirectionsLeg_Maneuver_Type_kMergeLeft);
+        LOG_TRACE("ManeuverType=MERGE_LEFT");
+        break;
+      }
+      default: {
+        maneuver.set_type(DirectionsLeg_Maneuver_Type_kMerge);
+        LOG_TRACE("ManeuverType=MERGE");
+      }
+    }
   }
   // Process enter ferry
   else if (maneuver.ferry() || maneuver.rail_ferry()) {
@@ -1587,6 +1690,12 @@ bool ManeuversBuilder::CanManeuverIncludePrevEdge(Maneuver& maneuver, int node_i
   }
 
   /////////////////////////////////////////////////////////////////////////////
+  // Process driving side
+  if (maneuver.drive_on_right() != prev_edge->drive_on_right()) {
+    return false;
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
   // Process travel mode and travel types (unnamed pedestrian and bike)
   if (maneuver.travel_mode() != prev_edge->travel_mode()) {
     return false;
@@ -1646,7 +1755,7 @@ bool ManeuversBuilder::CanManeuverIncludePrevEdge(Maneuver& maneuver, int node_i
   }
 
   /////////////////////////////////////////////////////////////////////////////
-  // Process signs
+  // Process exit signs
   if (maneuver.HasExitSign()) {
     return false;
   }
@@ -1772,6 +1881,25 @@ bool ManeuversBuilder::IncludeUnnamedPrevEdge(int node_index,
   return false;
 }
 
+Maneuver::RelativeDirection
+ManeuversBuilder::DetermineMergeToRelativeDirection(EnhancedTripLeg_Node* node,
+                                                    EnhancedTripLeg_Edge* prev_edge) const {
+
+  IntersectingEdgeCounts xedge_counts;
+  node->CalculateRightLeftIntersectingEdgeCounts(prev_edge->end_heading(), prev_edge->travel_mode(),
+                                                 xedge_counts);
+  if ((xedge_counts.left > 0) && (xedge_counts.left_similar == 0) && (xedge_counts.right == 0)) {
+    // If intersecting edge to the left and not the right then merge to the left
+    return Maneuver::RelativeDirection::kKeepLeft;
+  } else if ((xedge_counts.right > 0) && (xedge_counts.right_similar == 0) &&
+             (xedge_counts.left == 0)) {
+    // If intersecting edge to the right and not the left then merge to the right
+    return Maneuver::RelativeDirection::kKeepRight;
+  }
+  // default to none
+  return Maneuver::RelativeDirection::kNone;
+}
+
 bool ManeuversBuilder::IsMergeManeuverType(Maneuver& maneuver,
                                            EnhancedTripLeg_Edge* prev_edge,
                                            EnhancedTripLeg_Edge* curr_edge) const {
@@ -1786,6 +1914,8 @@ bool ManeuversBuilder::IsMergeManeuverType(Maneuver& maneuver,
          (curr_edge->road_class() == TripLeg_RoadClass_kPrimary)) &&
         curr_edge->IsOneway() && curr_edge->IsForward(maneuver.turn_degree()) &&
         node->HasIntersectingEdgeCurrNameConsistency()))) {
+    maneuver.set_merge_to_relative_direction(
+        DetermineMergeToRelativeDirection(node.get(), prev_edge));
     return true;
   }
 
@@ -2358,6 +2488,8 @@ void ManeuversBuilder::SetToStayOnAttribute(std::list<Maneuver>& maneuvers) {
         }
         break;
       }
+      default:
+        break;
     }
     // on to the next maneuver...
     prev_man = curr_man;
@@ -2385,8 +2517,7 @@ void ManeuversBuilder::EnhanceSignlessInterchnages(std::list<Maneuver>& maneuver
     // to the current maneuver branch sign list
     if ((curr_man->ramp() || (curr_man->fork() && !curr_man->HasStreetNames())) &&
         !curr_man->HasExitSign() && !(prev_man->ramp() || prev_man->fork()) &&
-        (next_man->type() == DirectionsLeg_Maneuver_Type::DirectionsLeg_Maneuver_Type_kMerge) &&
-        next_man->HasStreetNames()) {
+        next_man->IsMergeType() && next_man->HasStreetNames()) {
       curr_man->mutable_signs()
           ->mutable_exit_branch_list()
           ->emplace_back(next_man->street_names().front()->value(),
@@ -2577,6 +2708,82 @@ void ManeuversBuilder::ProcessTurnLanes(std::list<Maneuver>& maneuvers) {
     curr_man = next_man;
     ++next_man;
   }
+}
+
+void ManeuversBuilder::ProcessGuidanceViewJunctions(std::list<Maneuver>& maneuvers) {
+  // Walk the maneuvers to match find guidance view junctions
+  for (Maneuver& maneuver : maneuvers) {
+    // Only process driving maneuvers
+    if (maneuver.travel_mode() == TripLeg_TravelMode::TripLeg_TravelMode_kDrive) {
+      auto prev_edge = trip_path_->GetPrevEdge(maneuver.begin_node_index());
+      if (prev_edge && (prev_edge->has_sign())) {
+        // Process base guidance view junctions
+        for (const auto& base_guidance_view_junction : prev_edge->sign().guidance_view_junctions()) {
+          auto base_tokens = split(base_guidance_view_junction.text(), ';');
+          // If base(is_route_number) guidance view junction and a pair...
+          if (base_guidance_view_junction.is_route_number() && is_pair(base_tokens)) {
+            // ...find matching overlay
+            MatchGuidanceViewJunctions(maneuver, base_tokens.at(0), base_tokens.at(1));
+          }
+        } // end for loop over base guidance view junction
+      }
+    }
+  }
+}
+
+void ManeuversBuilder::MatchGuidanceViewJunctions(Maneuver& maneuver,
+                                                  const std::string& base_prefix,
+                                                  const std::string& base_suffix) {
+  // Loop over edges
+  uint32_t edge_count = 0;
+  for (uint32_t node_index = maneuver.begin_node_index();
+       ((node_index < maneuver.end_node_index()) && (edge_count < kOverlayEdgeMax));
+       ++node_index, edge_count++) {
+    // Loop over guidance view junctions
+    auto curr_edge = trip_path_->GetCurrEdge(maneuver.begin_node_index());
+    if (curr_edge && (curr_edge->has_sign())) {
+      // Process overlay guidance view junctions
+      for (const auto& overlay_guidance_view_junction : curr_edge->sign().guidance_view_junctions()) {
+        auto overlay_tokens = split(overlay_guidance_view_junction.text(), ';');
+        // If overlay(!is_route_number) guidance view junction and a pair...
+        if (!overlay_guidance_view_junction.is_route_number() && is_pair(overlay_tokens) &&
+            (base_prefix == overlay_tokens.at(0))) {
+          // TODO implement for real in the future
+          DirectionsLeg_GuidanceView guidance_view;
+          guidance_view.set_data_id("z");
+          guidance_view.set_type("jct");
+          guidance_view.set_base_id(base_prefix + base_suffix);
+          guidance_view.add_overlay_ids(overlay_tokens.at(0) + overlay_tokens.at(1));
+          maneuver.mutable_guidance_views()->emplace_back(guidance_view);
+          return;
+        }
+      } // end for loop over base guidance view junction
+    }
+  }
+}
+
+bool ManeuversBuilder::RampLeadsToHighway(Maneuver& maneuver) const {
+  // Verify that the specified maneuver is a ramp
+  if (maneuver.ramp()) {
+    // Loop over edges
+    for (uint32_t node_index = maneuver.end_node_index(); node_index < trip_path_->GetLastNodeIndex();
+         ++node_index) {
+      auto curr_edge = trip_path_->GetCurrEdge(node_index);
+      if (curr_edge && (curr_edge->IsRampUse() || curr_edge->IsTurnChannelUse() ||
+                        curr_edge->internal_intersection())) {
+        // Skip ramp, turn channel, and internal edges
+        continue;
+      } else if (curr_edge && curr_edge->IsHighway()) {
+        // Ramp leads to highway
+        return true;
+      } else {
+        // Ramp does not lead to highway
+        return false;
+      }
+    }
+  }
+  // Not a ramp
+  return false;
 }
 
 } // namespace odin

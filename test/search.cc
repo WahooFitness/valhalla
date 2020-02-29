@@ -1,5 +1,4 @@
 #include "loki/search.h"
-#include "test.h"
 #include <cstdint>
 
 #include <boost/filesystem.hpp>
@@ -13,6 +12,8 @@
 #include "baldr/tilehierarchy.h"
 #include "midgard/pointll.h"
 #include "midgard/vector2.h"
+
+#include "test.h"
 
 using namespace valhalla::midgard;
 using namespace valhalla::baldr;
@@ -45,14 +46,18 @@ std::pair<GraphId, PointLL> a({tile_id.tileid(), tile_id.level(), 1}, {.01, .1})
 std::pair<GraphId, PointLL> c({tile_id.tileid(), tile_id.level(), 2}, {.01, .01});
 std::pair<GraphId, PointLL> d({tile_id.tileid(), tile_id.level(), 3}, {.2, .1});
 
+void clean_tiles() {
+  if (boost::filesystem::is_directory(tile_dir)) {
+    boost::filesystem::remove_all(tile_dir);
+  }
+}
+
 void make_tile() {
   using namespace valhalla::mjolnir;
   using namespace valhalla::baldr;
 
   // make sure that all the old tiles are gone before trying to make new ones.
-  if (boost::filesystem::is_directory(tile_dir)) {
-    boost::filesystem::remove_all(tile_dir);
-  }
+  clean_tiles();
 
   // basic tile information
   GraphTileBuilder tile(tile_dir, tile_id, false);
@@ -157,16 +162,15 @@ void search(valhalla::baldr::Location location,
   PathLocation::toPBF(location, &pbf, reader);
   location = PathLocation::fromPBF(pbf);
 
-  const auto results = Search({location}, reader, PassThroughEdgeFilter, PassThroughNodeFilter);
+  const auto results = Search({location}, reader);
   const auto p = results.at(location);
 
-  if ((p.edges.front().begin_node() || p.edges.front().end_node()) != expected_node)
-    throw std::runtime_error(expected_node ? "Should've snapped to node"
-                                           : "Shouldn't've snapped to node");
-  if (!p.edges.size())
-    throw std::runtime_error("Didn't find any node/edges");
-  if (!p.edges.front().projected.ApproximatelyEqual(expected_point))
-    throw std::runtime_error("Found wrong point");
+  EXPECT_EQ((p.edges.front().begin_node() || p.edges.front().end_node()), expected_node)
+      << p.edges.front().begin_node() << ":" << p.edges.front().end_node()
+      << (expected_node ? " Should've snapped to node" : " Shouldn't've snapped to node");
+
+  EXPECT_TRUE(p.edges.size()) << "Didn't find any node/edges";
+  EXPECT_TRUE(p.edges.front().projected.ApproximatelyEqual(expected_point)) << "Found wrong point";
 
   valhalla::baldr::PathLocation answer(location);
   for (const auto& expected_edge : expected_edges) {
@@ -176,11 +180,11 @@ void search(valhalla::baldr::Location location,
   }
   // note that this just checks that p has the edges that answer has
   // p can have more edges than answer has and that wont fail this check!
-  if (!answer.shares_edges(p))
-    throw std::runtime_error("Did not find expected edges");
+  EXPECT_TRUE(answer.shares_edges(p)) << "Did not find expected edges";
   // if you want to enforce that the result didnt have more then expected
-  if (exact && answer.edges.size() != p.edges.size())
-    throw std::logic_error("Got more edges than expected");
+  if (exact) {
+    EXPECT_EQ(answer.edges.size(), p.edges.size()) << "Got more edges than expected";
+  }
 }
 
 void search(valhalla::baldr::Location location, size_t result_count, int reachability) {
@@ -195,19 +199,19 @@ void search(valhalla::baldr::Location location, size_t result_count, int reachab
   PathLocation::toPBF(location, &pbf, reader);
   location = PathLocation::fromPBF(pbf);
 
-  const auto results = Search({location}, reader, PassThroughEdgeFilter, PassThroughNodeFilter);
+  const auto results = Search({location}, reader);
   if (results.empty() && result_count == 0)
     return;
   const auto& p = results.at(location);
 
-  if (p.edges.size() != result_count)
-    throw std::logic_error("Wrong number of edges");
-  for (const auto& e : p.edges)
-    if (e.minimum_reachability != reachability)
-      throw std::logic_error("Wrong reachability");
+  EXPECT_EQ(p.edges.size(), result_count) << "Wrong number of edges";
+  for (const auto& e : p.edges) {
+    EXPECT_EQ(e.outbound_reach, reachability);
+    EXPECT_EQ(e.inbound_reach, reachability);
+  }
 }
 
-void test_edge_search() {
+TEST(Search, test_edge_search) {
   auto t = a.first.tileid();
   auto l = a.first.level();
   using S = PathLocation::SideOfStreet;
@@ -230,6 +234,18 @@ void test_edge_search() {
              PE{{t, l, 0}, 1, d.second, 0, S::NONE}, PE{{t, l, 3}, 1, d.second, 0, S::NONE},
              PE{{t, l, 6}, 1, d.second, 0, S::NONE} // arriving edges
          });
+
+  // regression test for #2023, displace the point beyond search_cutoff but within node_snap_tolerance
+  Location near_node{a.second};
+  near_node.latlng_.second += 0.00001; // 1.11 meters
+  near_node.search_cutoff_ = 1.0;
+  near_node.node_snap_tolerance_ = 2.0;
+  search(near_node, true, a.second,
+         {PE{{t, l, 2}, 0, a.second, 0, S::NONE}, PE{{t, l, 3}, 0, a.second, 0, S::NONE},
+          PE{{t, l, 4}, 0, a.second, 0, S::NONE}, PE{{t, l, 1}, 1, a.second, 0, S::NONE},
+          PE{{t, l, 8}, 1, a.second, 0, S::NONE}, PE{{t, l, 5}, 1, a.second, 0, S::NONE}},
+         true);
+
   // snap to node as through location should be all edges
   Location x{a.second, Location::StopType::THROUGH};
   search(x, true, a.second,
@@ -275,11 +291,11 @@ void test_edge_search() {
          {PE{{t, l, 3}, ratio, answer, 0, S::NONE}, PE{{t, l, 8}, 1.f - ratio, answer, 0, S::NONE}});
 
   // we only want opposite driving side, tiles are left hand driving
-  search({test, ST::BREAK, 0, 0, PS::OPPOSITE}, false, answer,
+  search({test, ST::BREAK, 0, 0, 0, PS::OPPOSITE}, false, answer,
          {PE{{t, l, 3}, ratio, answer, 0, S::RIGHT}}, true);
 
   // we only want same driving side, tiles are left hand driving
-  search({test, ST::BREAK, 0, 0, PS::SAME}, false, answer,
+  search({test, ST::BREAK, 0, 0, 0, PS::SAME}, false, answer,
          {PE{{t, l, 8}, 1.f - ratio, answer, 0, S::LEFT}}, true);
 
   // set a point 40% along the edge that runs in reverse of the shape
@@ -300,41 +316,41 @@ void test_edge_search() {
          {PE{{t, l, 0}, ratio, answer, 0, S::NONE}, PE{{t, l, 7}, 1.f - ratio, answer, 0, S::NONE}});
 
   // we only want opposite driving side, tiles are left hand driving
-  search({test, ST::BREAK, 0, 0, PS::OPPOSITE}, false, answer,
+  search({test, ST::BREAK, 0, 0, 0, PS::OPPOSITE}, false, answer,
          {PE{{t, l, 7}, 1.f - ratio, answer, 0, S::RIGHT}}, true);
 
   // we only want same driving side, tiles are left hand driving
-  search({test, ST::BREAK, 0, 0, PS::SAME}, false, answer, {PE{{t, l, 0}, ratio, answer, 0, S::LEFT}},
-         true);
+  search({test, ST::BREAK, 0, 0, 0, PS::SAME}, false, answer,
+         {PE{{t, l, 0}, ratio, answer, 0, S::LEFT}}, true);
 
   // TODO: add more tests
 }
 
-void test_reachability_radius() {
+TEST(Search, test_reachability_radius) {
   PointLL ob(b.second.first - .001f, b.second.second - .01f);
   unsigned int longest = ob.Distance(d.second);
   unsigned int shortest = ob.Distance(a.second);
 
   // zero everything should be a single closest result
-  search({ob, Location::StopType::BREAK, 0, 0}, 2, 0);
+  search({ob, Location::StopType::BREAK, 0, 0, 0}, 2, 0);
 
   // set radius high to get them all
-  search({b.second, Location::StopType::BREAK, 0, longest + 100}, 10, 0);
+  search({b.second, Location::StopType::BREAK, 0, 0, longest + 100}, 10, 0);
 
   // set radius mid to get just some
-  search({b.second, Location::StopType::BREAK, 0, shortest - 100}, 4, 0);
+  search({b.second, Location::StopType::BREAK, 0, 0, shortest - 100}, 4, 0);
 
   // set reachability high to see it gets all nodes reachable
-  search({ob, Location::StopType::BREAK, 5, 0}, 2, 4);
+  search({ob, Location::StopType::BREAK, 5, 5, 0}, 2, 4);
 
   // set reachability right on to see we arent off by one
-  search({ob, Location::StopType::BREAK, 4, 0}, 2, 4);
+  search({ob, Location::StopType::BREAK, 4, 4, 0}, 2, 4);
 
   // set reachability lower to see we give up early
-  search({ob, Location::StopType::BREAK, 3, 0}, 2, 3);
+  search({ob, Location::StopType::BREAK, 3, 3, 0}, 2, 3);
 }
 
-void test_search_cutoff() {
+TEST(Search, test_search_cutoff) {
   // test default cutoff of 35km showing no results
   search({{-77, -77}}, 0, 0);
 
@@ -371,16 +387,19 @@ void test_search_cutoff() {
 
 } // namespace
 
-int main() {
-  test::suite suite("search");
+// Setup and tearown will be called only once for the entire suite121
+class SearchTestSuiteEnv : public ::testing::Environment {
+public:
+  void SetUp() override {
+    make_tile();
+  }
+  void TearDown() override {
+    // todo: think whether we want to clean tile dir after the test
+  }
+};
 
-  suite.test(TEST_CASE(make_tile));
-
-  suite.test(TEST_CASE(test_edge_search));
-
-  suite.test(TEST_CASE(test_reachability_radius));
-
-  suite.test(TEST_CASE(test_search_cutoff));
-
-  return suite.tear_down();
+int main(int argc, char* argv[]) {
+  testing::AddGlobalTestEnvironment(new SearchTestSuiteEnv);
+  testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

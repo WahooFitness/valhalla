@@ -1,3 +1,73 @@
+## Release Date: 2019-??-?? Valhalla 3.0.10
+* **Bug Fix**
+   * FIXED: Crazy ETAs.  If a way has forward speed with no backward speed and it is not oneway, then we must set the default speed.  The reverse logic applies as well.  If a way has no backward speed but has a forward speed and it is not a oneway, then set the default speed. [#2102](https://github.com/valhalla/valhalla/pull/2102)
+   * FIXED: Map matching elapsed times spliced amongst different legs and discontinuities are now correct [#2104](https://github.com/valhalla/valhalla/pull/2104)
+   * FIXED: Date time information is now propogated amongst different legs and discontinuities [#2107](https://github.com/valhalla/valhalla/pull/2107)
+   * FIXED: Adds support for geos-3.8 c++ api [#2021](https://github.com/valhalla/valhalla/issues/2021)
+   * FIXED: Updated the osrm serializer to not set junction name for osrm origin/start maneuver - this is not helpful since we are not transitioning through the intersection.  [#2121](https://github.com/valhalla/valhalla/pull/2121)
+   * FIXED: Removes precomputing of edge-costs which lead to wrong results [#2120](https://github.com/valhalla/valhalla/pull/2120)
+   * FIXED: Complex turn-restriction invalidates edge marked as kPermanent [#2103](https://github.com/valhalla/valhalla/issues/2103)
+   * FIXED: Fixes bug with inverted time-restriction parsing [#2167](https://github.com/valhalla/valhalla/pull/2167)
+   * FIXED: Fixed several bugs with numeric underflow in map-matching trip durations. These may
+     occur when serializing match results where adjacent trace points appear out-of-sequence on the
+     same edge [#2178](https://github.com/valhalla/valhalla/pull/2178)
+     - `MapMatcher::FormPath` now catches route discontinuities on the same edge when the distance
+       percentage along don't agree. The trip leg builder builds disconnected legs on a single edge
+       to avoid duration underflow.
+     - Correctly populate edge groups when matching results contain loops. When a loop occurs,
+       the leg builder now starts at the correct edge where the loop ends, and correctly accounts
+       for any contained edges.
+     - Duration over-trimming at the terminating edge of a match.
+   * FIXED: Increased internal precision of time tracking per edge and maneuver so that maneuver times sum to the same time represented in the leg summary [#2195](https://github.com/valhalla/valhalla/pull/2195)
+   * FIXED: Tagged speeds were not properly marked. We were not using forward and backward speeds to flag if a speed is tagged or not.  Should not update turn channel speeds if we are not inferring them.  Added additional logic to handle PH in the conditional restrictions. Do not update stop impact for ramps if they are marked as internal. [#2198](https://github.com/valhalla/valhalla/pull/2198)
+   * FIXED: Fixed the sharp turn phrase [#2226](https://github.com/valhalla/valhalla/pull/2226)
+   * FIXED: Protect against duplicate points in the input or points that snap to the same location resulting in `nan` times for the legs of the map match (of a 0 distance route) [#2229](https://github.com/valhalla/valhalla/pull/2229)
+   * FIXED: Allow nodes at location 0,0 [#2245](https://github.com/valhalla/valhalla/pull/2245)
+   * FIXED: Fix RapidJSON compiler warnings and naming conflict [#2249](https://github.com/valhalla/valhalla/pull/2249)
+   * FIXED: Fixed bug in resample_spherical_polyline where duplicate successive lat,lng locations in the polyline resulting in `nan` for the distance computation which shortcuts further sampling [#2239](https://github.com/valhalla/valhalla/pull/2239)
+   * FIXED: Update exit logic for non-motorways [#2252](https://github.com/valhalla/valhalla/pull/2252)
+
+* **Enhancement**
+   * ADDED: Return the coordinates of the nodes isochrone input locations snapped to [#2111](https://github.com/valhalla/valhalla/pull/2111)
+   * ADDED: Allows more complicated routes in timedependent a-star before timing out [#2068](https://github.com/valhalla/valhalla/pull/2068)
+   * ADDED: Guide signs and junction names [#2096](https://github.com/valhalla/valhalla/pull/2096)
+   * ADDED: Added a bool to the config indicating whether to use commercially set attributes.  Added logic to not call IsIntersectionInternal if this is a commercial data set.  [#2132](https://github.com/valhalla/valhalla/pull/2132)
+   * ADDED: Removed commerical data set bool to the config and added more knobs for data.  Added infer_internal_intersections, infer_turn_channels, apply_country_overrides, and use_admin_db.  [#2173](https://github.com/valhalla/valhalla/pull/2173)
+   * ADDED: Allow using googletest in unit tests and convert all tests to it (old test.cc is completely removed). [#2128](https://github.com/valhalla/valhalla/pull/2128)
+   * ADDED: Add guidance view capability. [#2209](https://github.com/valhalla/valhalla/pull/2209)
+   * ADDED: Collect turn cost information as path is formed so that it can be seralized out for trace attributes or osrm flavored intersections. Also add shape_index to osrm intersections. [#2207](https://github.com/valhalla/valhalla/pull/2207)
+   * ADDED: Added alley factor to autocost.  Factor is defaulted at 1.0f or do not avoid alleys. [#2246](https://github.com/valhalla/valhalla/pull/2246) 
+
+## Release Date: 2019-11-21 Valhalla 3.0.9
+* **Bug Fix**
+   * FIXED: Changed reachability computation to consider both directions of travel wrt candidate edges [#1965](https://github.com/valhalla/valhalla/pull/1965)
+   * FIXED: toss ways where access=private and highway=service and service != driveway. [#1960](https://github.com/valhalla/valhalla/pull/1960)
+   * FIXED: Fix search_cutoff check in loki correlate_node. [#2023](https://github.com/valhalla/valhalla/pull/2023)
+   * FIXED: Computes notion of a deadend at runtime in bidirectional a-star which fixes no-route with a complicated u-turn. [#1982](https://github.com/valhalla/valhalla/issues/1982)
+   * FIXED: Fix a bug with heading filter at nodes. [#2058](https://github.com/valhalla/valhalla/pull/2058)
+   * FIXED: Bug in map matching continuity checking such that continuity must only be in the forward direction. [#2029](https://github.com/valhalla/valhalla/pull/2029)
+   * FIXED: Allow setting the time for map matching paths such that the time is used for speed lookup. [#2030](https://github.com/valhalla/valhalla/pull/2030)
+   * FIXED: Don't use density factor for transition cost when user specified flag disables flow speeds. [#2048](https://github.com/valhalla/valhalla/pull/2048)
+   * FIXED: Map matching trace_route output now allows for discontinuities in the match though multi match is not supported in valhalla route output. [#2049](https://github.com/valhalla/valhalla/pull/2049)
+   * FIXED: Allows routes with no time specified to use time conditional edges and restrictions with a flag denoting as much [#2055](https://github.com/valhalla/valhalla/pull/2055)
+   * FIXED: Fixed a bug with 'current' time type map matches. [#2060](https://github.com/valhalla/valhalla/pull/2060)
+   * FIXED: Fixed a bug with time dependent expansion in which the expansion distance heuristic was not being used. [#2064](https://github.com/valhalla/valhalla/pull/2064)
+
+* **Enhancement**
+   * ADDED: Establish pinpoint test pattern [#1969](https://github.com/valhalla/valhalla/pull/1969)
+   * ADDED: Suppress relative direction in ramp/exit instructions if it matches driving side of street [#1990](https://github.com/valhalla/valhalla/pull/1990)
+   * ADDED: Added relative direction to the merge maneuver [#1989](https://github.com/valhalla/valhalla/pull/1989)
+   * ADDED: Refactor costing to better handle multiple speed datasources [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Better usability of curl for fetching tiles on the fly [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: LRU cache scheme for tile storage [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: GraphTile size check [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Pick more sane values for highway and toll avoidance [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Refactor adding predicted speed info to speed up process [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Allow selecting speed data sources at request time [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Allow disabling certain neighbors in connectivity map [#2026](https://github.com/valhalla/valhalla/pull/2026)
+   * ADDED: Allows routes with time-restricted edges if no time specified and notes restriction in response [#1992](https://github.com/valhalla/valhalla/issues/1992)
+   * ADDED: Runtime deadend detection to timedependent a-star. [#2059](https://github.com/valhalla/valhalla/pull/2059)
+
 ## Release Date: 2019-09-06 Valhalla 3.0.8
 * **Bug Fix**
    * FIXED: Added logic to detect if user is to merge to the left or right [#1892](https://github.com/valhalla/valhalla/pull/1892)
@@ -10,7 +80,7 @@
    * FIXED: Added logic to fix missing highway cardinal directions in the US [#1917](https://github.com/valhalla/valhalla/pull/1917)
    * FIXED: Handle forward traversable significant road class intersecting edges [#1928](https://github.com/valhalla/valhalla/pull/1928)
    * FIXED: Fixed bug with shape trimming that impacted Uturns at Via locations. [#1935](https://github.com/valhalla/valhalla/pull/1935)
-   * FIXED: Dive bomb updates.  Updated default speeds for urban areas based on roadclass for the enhancer.  Also, updated default speeds based on roadclass in lua.  Fixed an issue where we were subtracting 1 from uint32_t when 0 for stop impact.  Updated reclassify link logic to allow residential roads to be added to the tree, but we only downgrade the links to tertiary.  Updated TransitionCost functions to add 1.5 to the turncost when transitioning from a ramp to a non ramp and vice versa.  Also, added 0.5f to the turncost if the edge is a roundabout. [#1931](https://github.com/valhalla/valhalla/pull/1931) 
+   * FIXED: Dive bomb updates.  Updated default speeds for urban areas based on roadclass for the enhancer.  Also, updated default speeds based on roadclass in lua.  Fixed an issue where we were subtracting 1 from uint32_t when 0 for stop impact.  Updated reclassify link logic to allow residential roads to be added to the tree, but we only downgrade the links to tertiary.  Updated TransitionCost functions to add 1.5 to the turncost when transitioning from a ramp to a non ramp and vice versa.  Also, added 0.5f to the turncost if the edge is a roundabout. [#1931](https://github.com/valhalla/valhalla/pull/1931)
 
 * **Enhancement**
    * ADDED: Caching url fetched tiles to disk [#1887](https://github.com/valhalla/valhalla/pull/1887)

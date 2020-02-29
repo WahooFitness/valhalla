@@ -43,6 +43,7 @@ public:
   const DirectionsLeg_Maneuver_Type& type() const;
   void set_type(const DirectionsLeg_Maneuver_Type& type);
   bool IsDestinationType() const;
+  bool IsMergeType() const;
 
   const StreetNames& street_names() const;
   void set_street_names(const std::vector<std::pair<std::string, bool>>& names);
@@ -77,12 +78,12 @@ public:
   void set_length(float length);
 
   // Seconds
-  uint32_t time() const;
-  void set_time(uint32_t time);
+  double time() const;
+  void set_time(double time);
 
   // len/speed on each edge with no stop impact in seconds
-  uint32_t basic_time() const;
-  void set_basic_time(uint32_t basic_time);
+  double basic_time() const;
+  void set_basic_time(double basic_time);
 
   uint32_t turn_degree() const;
   void set_turn_degree(uint32_t turn_degree);
@@ -129,6 +130,8 @@ public:
 
   bool portions_toll() const;
   void set_portions_toll(bool portionsToll);
+  bool has_time_restrictions() const;
+  void set_has_time_restrictions(bool has_time_restrictions);
 
   bool portions_unpaved() const;
   void set_portions_unpaved(bool portionsUnpaved);
@@ -143,11 +146,19 @@ public:
   const Signs& signs() const;
   Signs* mutable_signs();
 
+  bool HasSigns() const;
+
   bool HasExitSign() const;
   bool HasExitNumberSign() const;
   bool HasExitBranchSign() const;
   bool HasExitTowardSign() const;
   bool HasExitNameSign() const;
+
+  bool HasGuideSign() const;
+  bool HasGuideBranchSign() const;
+  bool HasGuideTowardSign() const;
+
+  bool HasJunctionNameSign() const;
 
   uint32_t internal_right_turn_count() const;
   void set_internal_right_turn_count(uint32_t internal_right_turn_count);
@@ -206,6 +217,12 @@ public:
   void set_roundabout_exit_street_names(std::unique_ptr<StreetNames>&& roundabout_exit_street_names);
   bool HasRoundaboutExitStreetNames() const;
   void ClearRoundaboutExitStreetNames();
+
+  RelativeDirection merge_to_relative_direction() const;
+  void set_merge_to_relative_direction(RelativeDirection merge_to_relative_direction);
+
+  bool drive_on_right() const;
+  void set_drive_on_right(bool drive_on_right);
 
   TripLeg_TravelMode travel_mode() const;
   void set_travel_mode(TripLeg_TravelMode travel_mode);
@@ -275,6 +292,9 @@ public:
   const VerbalTextFormatter* verbal_formatter() const;
   void set_verbal_formatter(std::unique_ptr<VerbalTextFormatter>&& verbal_formatter);
 
+  const std::vector<DirectionsLeg_GuidanceView>& guidance_views() const;
+  std::vector<DirectionsLeg_GuidanceView>* mutable_guidance_views();
+
 #ifdef LOGGING_LEVEL_TRACE
   std::string ToString() const;
 
@@ -287,9 +307,9 @@ protected:
   std::unique_ptr<StreetNames> begin_street_names_;
   std::unique_ptr<StreetNames> cross_street_names_;
   std::string instruction_;
-  float length_;        // Kilometers
-  uint32_t time_;       // Seconds
-  uint32_t basic_time_; // len/speed on each edge with no stop impact in seconds
+  float length_;      // Kilometers
+  double time_;       // Seconds
+  double basic_time_; // len/speed on each edge with no stop impact in seconds
   uint32_t turn_degree_;
   RelativeDirection begin_relative_direction_;
   DirectionsLeg_Maneuver_CardinalDirection begin_cardinal_direction_;
@@ -325,6 +345,9 @@ protected:
   bool verbal_multi_cue_;
   bool to_stay_on_;
   std::unique_ptr<StreetNames> roundabout_exit_street_names_;
+  RelativeDirection merge_to_relative_direction_;
+  bool drive_on_right_; // Defaults to true
+  bool has_time_restrictions_;
 
   ////////////////////////////////////////////////////////////////////////////
   // Transit support
@@ -357,6 +380,8 @@ protected:
   TripLeg_TransitType transit_type_;
 
   std::unique_ptr<VerbalTextFormatter> verbal_formatter_;
+
+  std::vector<DirectionsLeg_GuidanceView> guidance_views_;
 };
 
 } // namespace odin
