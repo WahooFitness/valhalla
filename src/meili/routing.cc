@@ -588,8 +588,8 @@ find_shortest_path(baldr::GraphReader& reader,
             // Check that the node ID is in the tile. If not, skip it rather than throw
             // an exception because that causes an outright failure.
             // TODO: What is the underlying cause of an edge not being in a tile when we expect it?
-            if (directed_edge->endnode().id() < tile->header()->nodecount()) {
-              const float sortcost = cost.cost + heuristic(endtile->get_node_ll(directededge->endnode()));
+            if (directed_edge->endnode().id() < endtile->header()->nodecount()) {
+              const float sortcost = cost.cost + heuristic(endtile->get_node_ll(directed_edge->endnode()));
               labelset->put(directed_edge->endnode(), origin_edge.id, origin_edge.percent_along, 1.f,
                             cost, turn_cost, sortcost, label_idx, directed_edge, travelmode);
             }
