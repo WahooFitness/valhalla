@@ -1,8 +1,8 @@
 #ifndef VALHALLA_SIF_DYNAMICCOST_H_
 #define VALHALLA_SIF_DYNAMICCOST_H_
 
-#include "baldr/accessrestriction.h"
-#include "midgard/logging.h"
+#include <valhalla/baldr/accessrestriction.h>
+#include <valhalla/midgard/logging.h>
 #include <cstdint>
 #include <valhalla/baldr/datetime.h>
 #include <valhalla/baldr/directededge.h>
@@ -21,7 +21,7 @@
 #include <valhalla/thor/edgestatus.h>
 
 #include <memory>
-#include <third_party/rapidjson/include/rapidjson/document.h>
+#include <rapidjson/document.h>
 #include <unordered_map>
 
 namespace valhalla {
