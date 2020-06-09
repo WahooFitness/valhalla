@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <memory>
 
 #include "baldr/streetnames.h"
 #include "baldr/verbal_text_formatter.h"
