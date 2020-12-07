@@ -627,6 +627,14 @@ public:
   }
 
   /**
+   * Gets encoded elevation samples for a given directed edge index
+   * @param idx Index of directed edge to retrieve
+   * @return String containing encoded elevation samples. Empty if there are no elevation samples.
+   * @throws std::range_error if index is out-of-bounds
+   */
+  std::string_view elevationSampleAtIndex(uint16_t directedEdgeIndex) const;
+
+  /**
    * Convenience method to get the offset into the text table for the turn lanes
    * for the specified directed edge.
    * @param  idx  Directed edge index. Used to lookup turn lanes.
@@ -736,6 +744,12 @@ protected:
 
   // Lane connectivity data.
   LaneConnectivity* lane_connectivity_;
+
+  // Array of edge elevation sample sizes
+  const uint16_t* edge_elevation_sample_sizes_;
+
+  // Pointers to the edge elevation samples
+  std::vector<const char*> edge_elevation_samples_;
 
   // Number of bytes in lane connectivity data.
   std::size_t lane_connectivity_size_;

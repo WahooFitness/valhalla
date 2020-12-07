@@ -81,8 +81,8 @@ GraphTile::GraphTile()
       signs_(nullptr), admins_(nullptr), edge_bins_(nullptr), complex_restriction_forward_(nullptr),
       complex_restriction_reverse_(nullptr), edgeinfo_(nullptr), textlist_(nullptr),
       complex_restriction_forward_size_(0), complex_restriction_reverse_size_(0), edgeinfo_size_(0),
-      textlist_size_(0), lane_connectivity_(nullptr), lane_connectivity_size_(0), turnlanes_(nullptr),
-      traffic_tile(nullptr) {
+      textlist_size_(0), lane_connectivity_(nullptr), lane_connectivity_size_(0),
+      edge_elevation_sample_sizes_(nullptr), turnlanes_(nullptr), traffic_tile(nullptr) {
 }
 
 // Constructor given a filename. Reads the graph data into memory.
@@ -333,6 +333,16 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
       reinterpret_cast<LaneConnectivity*>(tile_ptr + header_->lane_connectivity_offset());
   lane_connectivity_size_ = header_->predictedspeeds_offset() - header_->lane_connectivity_offset();
 
+  const char* elevation_ptr = tile_ptr + header_->elevation_samples_offset();
+  edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_ptr);
+
+  elevation_ptr += header_->directededgecount() * sizeof(uint16_t);
+  edge_elevation_samples_.reserve(header_->directededgecount());
+  for (auto i = 0; i < header_->directededgecount(); ++i) {
+    edge_elevation_samples_.push_back(elevation_ptr);
+    elevation_ptr += edge_elevation_sample_sizes_[i];
+  }
+
   // Start of predicted speed data.
   if (header_->predictedspeeds_count() > 0) {
     char* ptr1 = tile_ptr + header_->predictedspeeds_offset();
@@ -355,6 +365,18 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
   if (graphid.level() == 3) {
     AssociateOneStopIds(graphid);
   }
+}
+
+std::string_view GraphTile::elevationSampleAtIndex(uint16_t directedEdgeIndex) const {
+  if (edge_elevation_samples_.empty()) {
+    return std::string_view{};
+  }
+
+  if (directedEdgeIndex >= header_->directededgecount()) {
+    throw std::range_error("Invalid directed edge index when looking for elevation samples");
+  }
+
+  return std::string_view{edge_elevation_samples_[directedEdgeIndex], edge_elevation_sample_sizes_[directedEdgeIndex]};
 }
 
 // For transit tiles we need to save off the pair<tileid,lineid> lookup via

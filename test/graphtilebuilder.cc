@@ -331,8 +331,13 @@ TEST(GraphTileBuilder, TestAddElevationSamples) {
 
 TEST(GraphTileBuilder, TestWriteElevationData) {
   const std::string testDir = "test/data/builder_tiles";
+  remove("test/data/builder_tiles/2/000/000/000.gph");
   auto testGraphId = GraphId{0, 2, 0};
   auto graphTileBuilder = GraphTileBuilder{testDir, testGraphId, false};
+
+  graphTileBuilder.directededges().emplace_back();
+  graphTileBuilder.directededges().emplace_back();
+  graphTileBuilder.directededges().emplace_back();
 
   bool added = false;
   graphTileBuilder.AddEdgeInfo(0, GraphId(0, 2, 0), GraphId(0, 2, 1), 1234, 555, 0, 120,
@@ -344,6 +349,7 @@ TEST(GraphTileBuilder, TestWriteElevationData) {
 
   graphTileBuilder.AddEdgeInfo(2, GraphId(0, 2, 2), GraphId(0, 2, 3), 9087, 555, 0, 120,
                                std::list<PointLL>{{2, 2}, {3, 3}}, {"asdf"}, {"main st"}, 0, added);
+  ASSERT_TRUE(added);
 
   const auto firstString = "one";
   const auto secondString = "two";
@@ -372,13 +378,24 @@ TEST(GraphTileBuilder, TestWriteElevationData) {
 
   graphTileBuilder.StoreTileData();
 
+  ASSERT_EQ(graphTileBuilder.header_builder().directededgecount(), 3);
+
   auto graphReaderConfig = boost::property_tree::ptree{};
   graphReaderConfig.put("tile_dir", "test/data/builder_tiles");
   GraphReader graphReader{graphReaderConfig};
 
   auto tile = graphReader.GetGraphTile(testGraphId);
   ASSERT_NE(tile, nullptr);
-  ASSERT_EQ(tile->header()->elevation_samples_offset(), graphTileBuilder.header()->elevation_samples_offset());
+  ASSERT_EQ(tile->header()->elevation_samples_offset(), graphTileBuilder.header_builder().elevation_samples_offset());
+
+  auto firstSamples = tile->elevationSampleAtIndex(0);
+  ASSERT_TRUE(firstSamples == firstString);
+
+  auto secondSamples = tile->elevationSampleAtIndex(1);
+  ASSERT_TRUE(secondSamples == secondString);
+
+  auto thirdSamples = tile->elevationSampleAtIndex(2);
+  ASSERT_TRUE(thirdSamples == thirdString);
 }
 
 } // namespace
