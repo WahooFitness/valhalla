@@ -110,11 +110,13 @@ TEST(GraphTileBuilder, TestDuplicateEdgeInfo) {
   test.AddEdgeInfo(0, GraphId(0, 2, 0), GraphId(0, 2, 1), 1234, 555, 0, 120,
                    std::list<PointLL>{{0, 0}, {1, 1}}, {"einzelweg"}, {"1xyz tunnel"}, 0, added);
   EXPECT_EQ(test.edge_offset_map_.size(), 1) << "There should be exactly two of these in here";
+  EXPECT_TRUE(added);
 
   // add edge info for node 1 to node 0
   test.AddEdgeInfo(0, GraphId(0, 2, 1), GraphId(0, 2, 0), 1234, 555, 0, 120,
                    std::list<PointLL>{{1, 1}, {0, 0}}, {"einzelweg"}, {"1xyz tunnel"}, 0, added);
-  EXPECT_EQ(test.edge_offset_map_.size(), 1) << "There should still be exactly two of these in here";
+  EXPECT_EQ(test.edge_offset_map_.size(), 1) << "There should still be exactly one of these in here";
+  EXPECT_FALSE(added);
 
   test.StoreTileData();
   test_graph_tile_builder test2(test_dir, GraphId(0, 2, 0), false);
@@ -295,6 +297,88 @@ TEST(GraphTileBuilder, TestBinEdges) {
   GraphTileBuilder::tweeners_t tweeners;
   auto bins = GraphTileBuilder::BinEdges(&fake, tweeners);
   EXPECT_EQ(tweeners.size(), 1) << "This edge leaves a tile for 1 other tile and comes back.";
+}
+
+TEST(GraphTileBuilder, TestAddElevationSamples) {
+  const std::string testDir = "test/data/builder_tiles";
+  auto graphTileBuilder = test_graph_tile_builder{testDir, GraphId{0, 2, 0}, false};
+
+  const auto firstString = "one";
+  const auto secondString = "two";
+  const auto thirdString = "three";
+
+  graphTileBuilder.AddEdgeElevationSamples(firstString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 1);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 3);
+
+  graphTileBuilder.AddEdgeElevationSamples(secondString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 2);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 6);
+
+  graphTileBuilder.AddEdgeElevationSamples(thirdString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 3);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 11);
+
+  auto& samples = graphTileBuilder.EdgeElevationSamples();
+  auto allData = std::string_view{samples.data(), samples.size()};
+  ASSERT_TRUE(allData == "onetwothree");
+
+  auto& sizes = graphTileBuilder.EdgeElevationSampleSizes();
+  ASSERT_EQ(3, sizes[0]);
+  ASSERT_EQ(3, sizes[1]);
+  ASSERT_EQ(5, sizes[2]);
+}
+
+TEST(GraphTileBuilder, TestWriteElevationData) {
+  const std::string testDir = "test/data/builder_tiles";
+  auto testGraphId = GraphId{0, 2, 0};
+  auto graphTileBuilder = GraphTileBuilder{testDir, testGraphId, false};
+
+  bool added = false;
+  graphTileBuilder.AddEdgeInfo(0, GraphId(0, 2, 0), GraphId(0, 2, 1), 1234, 555, 0, 120,
+                               std::list<PointLL>{{0, 0}, {1, 1}}, {"einzelweg"}, {"1xyz tunnel"}, 0,
+                               added);
+
+  graphTileBuilder.AddEdgeInfo(1, GraphId(0, 2, 1), GraphId(0, 2, 2), 5678, 555, 0, 120,
+                               std::list<PointLL>{{1, 1}, {2, 2}}, {"asdf"}, {"main st"}, 0, added);
+
+  graphTileBuilder.AddEdgeInfo(2, GraphId(0, 2, 2), GraphId(0, 2, 3), 9087, 555, 0, 120,
+                               std::list<PointLL>{{2, 2}, {3, 3}}, {"asdf"}, {"main st"}, 0, added);
+
+  const auto firstString = "one";
+  const auto secondString = "two";
+  const auto thirdString = "three";
+
+  graphTileBuilder.AddEdgeElevationSamples(firstString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 1);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 3);
+
+  graphTileBuilder.AddEdgeElevationSamples(secondString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 2);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 6);
+
+  graphTileBuilder.AddEdgeElevationSamples(thirdString);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSampleSizes().size(), 3);
+  ASSERT_EQ(graphTileBuilder.EdgeElevationSamples().size(), 11);
+
+  auto& samples = graphTileBuilder.EdgeElevationSamples();
+  auto allData = std::string_view{samples.data(), samples.size()};
+  ASSERT_TRUE(allData == "onetwothree");
+
+  auto& sizes = graphTileBuilder.EdgeElevationSampleSizes();
+  ASSERT_EQ(sizes[0], 3);
+  ASSERT_EQ(sizes[1], 3);
+  ASSERT_EQ(sizes[2], 5);
+
+  graphTileBuilder.StoreTileData();
+
+  auto graphReaderConfig = boost::property_tree::ptree{};
+  graphReaderConfig.put("tile_dir", "test/data/builder_tiles");
+  GraphReader graphReader{graphReaderConfig};
+
+  auto tile = graphReader.GetGraphTile(testGraphId);
+  ASSERT_NE(tile, nullptr);
+  ASSERT_EQ(tile->header()->elevation_samples_offset(), graphTileBuilder.header()->elevation_samples_offset());
 }
 
 } // namespace

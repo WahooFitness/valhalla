@@ -17,7 +17,7 @@ namespace baldr {
 // something to the tile simply subtract one from this number and add it
 // just before the empty_slots_ array below. NOTE that it can ONLY be an
 // offset in bytes and NOT a bitfield or union or anything of that sort
-constexpr size_t kEmptySlots = 11;
+constexpr size_t kEmptySlots = 10;
 
 // Maximum size of the version string (stored as a fixed size
 // character array so the GraphTileHeader size remains fixed).
@@ -481,6 +481,22 @@ public:
   }
 
   /**
+   * Gets the offseet to the elevation samples
+   * @return Returns the number of bytes to offset of the elevation samples
+   */
+  uint32_t elevation_samples_offset() const {
+    return elevation_samples_offset_;
+  }
+
+  /**
+   * Sets the offseet to the elevation samples
+   * @param offset Offset in bytes to the start of the elevation samples
+   */
+  void set_elevation_samples_offset(uint32_t offset) {
+    elevation_samples_offset_ = offset;
+  }
+
+  /**
    * Gets the date when this tile was created. Days since pivot date.
    * @return  Returns the date this tile was created.
    */
@@ -682,6 +698,9 @@ protected:
 
   // GraphTile data size in bytes
   uint32_t tile_size_;
+
+  // Offset to the beginning of the elevation samples blob
+  uint32_t elevation_samples_offset_;
 
   // Marks the end of this version of the tile with the rest of the slots
   // being available for growth. If you want to use one of the empty slots,

@@ -10,6 +10,7 @@
 #include "baldr/graphid.h"
 #include "baldr/graphreader.h"
 #include "filesystem.h"
+#include "midgard/encoded.h"
 #include "midgard/logging.h"
 #include "midgard/pointll.h"
 #include "midgard/polyline2.h"
@@ -33,6 +34,10 @@ constexpr double POSTING_INTERVAL = 60;
 
 // Do not compute grade for intervals less than 10 meters.
 constexpr double kMinimumInterval = 10.0f;
+
+void add_edge_elevation(uint32_t edgeIndex,
+                        GraphTileBuilder& tileBuilder,
+                        const valhalla::skadi::sample* sample);
 
 /**
  * Adds elevation to a set of tiles. Each thread pulls a tile of the queue
@@ -148,6 +153,8 @@ void add_elevation(const boost::property_tree::ptree& pt,
       float max_down_slope = forward ? std::get<3>(found->second) : std::get<5>(found->second);
       directededge.set_max_up_slope(max_up_slope);
       directededge.set_max_down_slope(max_down_slope);
+
+      add_edge_elevation(i, tilebuilder, sample.get());
     }
 
     // Update the tile
@@ -160,6 +167,23 @@ void add_elevation(const boost::property_tree::ptree& pt,
       lock.unlock();
     }
   }
+}
+
+constexpr int elevationSampleEncodePrecision = 10;
+
+void add_edge_elevation(uint32_t edgeIndex,
+                        GraphTileBuilder& tileBuilder,
+                        const valhalla::skadi::sample* sample) {
+  const auto& directedEdge = tileBuilder.directededge(edgeIndex);
+  const auto edgeInfo = tileBuilder.edgeinfo(directedEdge.edgeinfo_offset());
+  auto heights = sample->get_all(edgeInfo.shape());
+
+  if (!directedEdge.forward()) {
+    std::reverse(std::begin(heights), std::end(heights));
+  }
+
+  auto encoded = encode7Samples(heights, elevationSampleEncodePrecision);
+  tileBuilder.AddEdgeElevationSamples(encoded);
 }
 
 } // namespace

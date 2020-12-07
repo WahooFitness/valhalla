@@ -22,6 +22,41 @@ constexpr size_t DIGITS_PRECISION = 6;
 namespace valhalla {
 namespace midgard {
 
+/**
+ * Encodes a single sample, already scaled to a whole number to an output string
+ * @param number Sample to encode
+ * @param output Encoded string that will contain the new sample
+ */
+void encode7Sample(int number, std::string& output);
+
+/**
+ * Decodes a value from an encoded string
+ * @param begin Pointer to first position to decode from. This will be incremented by the function.
+ * @param end Pointer to the end position of the encoded string.
+ * @param previous The value decoded by the last call to this function.
+ * @return A decoded sample from the encoded string.
+ * This is a whole number that may still need to be scaled to its original value.
+ */
+int32_t decode7Sample(const char** begin, const char* end, int32_t previous) noexcept(false);
+
+/**
+ * Encodes a list of samples into a string
+ * @param values List of samples
+ * @param precision A power of ten corresponding the number of digits of precision that should be
+ * stored
+ */
+std::string encode7Samples(const std::vector<double>& values, int precision);
+
+/**
+ * Decodes samples from a string
+ * @param encodedString Encoded string
+ * @param precision A power of 10 corresponding with the number of digits of precision
+ * stored in the string. (0.01, 0.001, 0.0001, etc)
+ * @return
+ */
+std::vector<double> decode7Samples(const std::string& encodedString,
+                                   double precision) noexcept(false);
+
 template <typename Point> class Shape7Decoder {
 public:
   Shape7Decoder(const char* begin, const size_t size, const double precision = DECODE_PRECISION)
@@ -44,19 +79,7 @@ private:
   double prec;
 
   int32_t next(const int32_t previous) noexcept(false) {
-    int32_t byte, shift = 0, result = 0;
-    do {
-      if (empty()) {
-        throw std::runtime_error("Bad encoded polyline");
-      }
-      // take the least significant 7 bits shifted into place
-      byte = int32_t(*begin++);
-      result |= (byte & 0x7f) << shift;
-      shift += 7;
-      // if the most significant bit is set there is more to this number
-    } while (byte & 0x80);
-    // handle the bit flipping and add to previous since its an offset
-    return previous + ((result & 1 ? ~result : result) >> 1);
+    return decode7Sample(&begin, end, previous);
   }
 };
 
@@ -220,22 +243,6 @@ std::string encode7(const container_t& points, const int precision = ENCODE_PREC
   // per coord, which is 6 bytes with 2 coords, so we overshoot to 8 just in case
   output.reserve(points.size() * 8);
 
-  // handy lambda to turn an integer into an encoded string
-  auto serialize = [&output](int number) {
-    // get the sign bit down on the least significant end to
-    // make the most significant bits mostly zeros
-    number = number < 0 ? ~(static_cast<unsigned int>(number) << 1) : number << 1;
-    // we take 7 bits of this at a time
-    while (number > 0x7f) {
-      // marking the most significant bit means there are more pieces to come
-      int nextValue = (0x80 | (number & 0x7f));
-      output.push_back(static_cast<char>(nextValue));
-      number >>= 7;
-    }
-    // write the last chunk
-    output.push_back(static_cast<char>(number & 0x7f));
-  };
-
   // this is an offset encoding so we remember the last point we saw
   int last_lon = 0, last_lat = 0;
   // for each point
@@ -244,8 +251,8 @@ std::string encode7(const container_t& points, const int precision = ENCODE_PREC
     int lon = static_cast<int>(round(static_cast<double>(p.first) * precision));
     int lat = static_cast<int>(round(static_cast<double>(p.second) * precision));
     // encode each coordinate, lat first for some reason
-    serialize(lat - last_lat);
-    serialize(lon - last_lon);
+    encode7Sample(lat - last_lat, output);
+    encode7Sample(lon - last_lon, output);
     // remember the last one we encountered
     last_lon = lon;
     last_lat = lat;

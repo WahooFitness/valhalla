@@ -13,6 +13,21 @@
 
 using namespace valhalla::baldr;
 
+namespace {
+constexpr auto paddingString = "\0\0\0\0\0\0\0\0";
+
+auto padStream(std::stringstream& stream) {
+  // Add padding (if needed) to align to 8-byte word.
+  const auto streamSize = stream.tellp() % 8;
+  const auto padding = (streamSize > 0) ? 8 - streamSize : 0;
+  if (padding > 0 && padding < 8) {
+    stream.write(paddingString, padding);
+  }
+
+  return padding;
+}
+} // namespace
+
 namespace valhalla {
 namespace mjolnir {
 
@@ -320,12 +335,7 @@ void GraphTileBuilder::StoreTileData() {
       in_mem << text << '\0';
     }
 
-    // Add padding (if needed) to align to 8-byte word.
-    int tmp = in_mem.tellp() % 8;
-    int padding = (tmp > 0) ? 8 - tmp : 0;
-    if (padding > 0 && padding < 8) {
-      in_mem.write("\0\0\0\0\0\0\0\0", padding);
-    }
+    auto padding = padStream(in_mem);
 
     // Write lane connections
     header_builder_.set_lane_connectivity_offset(header_builder_.textlist_offset() +
@@ -334,9 +344,22 @@ void GraphTileBuilder::StoreTileData() {
     in_mem.write(reinterpret_cast<const char*>(lane_connectivity_builder_.data()),
                  lane_connectivity_builder_.size() * sizeof(LaneConnectivity));
 
-    // Set the end offset
-    header_builder_.set_end_offset(header_builder_.lane_connectivity_offset() +
-                                   (lane_connectivity_builder_.size() * sizeof(LaneConnectivity)));
+    if (!edge_elevation_samples_.empty()) {
+      padding = padStream(in_mem);
+
+      header_builder_.set_elevation_samples_offset(header_builder_.lane_connectivity_offset() +
+                                                   padding);
+      const auto sizeBefore = in_mem.tellp();
+      in_mem.write(reinterpret_cast<const char*>(edge_elevation_sample_sizes_.data()),
+                   edge_elevation_sample_sizes_.size() * sizeof(uint16_t));
+      in_mem.write(edge_elevation_samples_.data(), edge_elevation_samples_.size());
+
+      header_builder_.set_end_offset(header_builder_.elevation_samples_offset() +
+                                     (in_mem.tellp() - sizeBefore));
+    } else {
+      header_builder_.set_end_offset(header_builder_.lane_connectivity_offset() +
+                                     (lane_connectivity_builder_.size() * sizeof(LaneConnectivity)));
+    }
 
     // Sanity check for the end offset
     uint32_t curr =
@@ -1039,6 +1062,19 @@ void GraphTileBuilder::AddPredictedSpeed(const uint32_t idx,
 
   // Append the profile
   speed_profile_builder_.insert(speed_profile_builder_.end(), profile.begin(), profile.end());
+}
+
+void GraphTileBuilder::AddEdgeElevationSamples(const std::string& samples) {
+  edge_elevation_sample_sizes_.push_back(samples.size());
+  std::copy(std::begin(samples), std::end(samples), std::back_inserter(edge_elevation_samples_));
+}
+
+const std::vector<uint16_t>& GraphTileBuilder::EdgeElevationSampleSizes() const noexcept {
+  return edge_elevation_sample_sizes_;
+}
+
+const std::vector<char>& GraphTileBuilder::EdgeElevationSamples() const noexcept {
+  return edge_elevation_samples_;
 }
 
 // Updates a tile with predictive speed data. Also updates directed edges with

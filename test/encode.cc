@@ -620,6 +620,45 @@ TEST(Encode, VarInt) {
                   {58.26482, -169.02219}});
 }
 
+TEST(Encode, LowSamplesList) {
+  const auto inputSamples =
+      std::vector<double>{2.0, 2.1, 2.0, 2.2, 2.5, 3.5, 2.5, 1.5, 0, -1.5, 0, 2.0};
+  auto encodedSamples = encode7Samples(inputSamples, 10);
+  auto decodedSamples = decode7Samples(encodedSamples, 0.1);
+
+  ASSERT_EQ(inputSamples.size(), decodedSamples.size());
+
+  for (auto i = 0; i < inputSamples.size(); ++i) {
+    ASSERT_NEAR(inputSamples[i], decodedSamples[i], 0.00001f);
+  }
+}
+
+TEST(Encode, HighSamplesList) {
+  const auto inputSamples =
+      std::vector<double>{50.0, 50.1, 50.0, 50.2, 50.5, 51.5, 50.5, 49.5, 48, 46.5, 48, 48};
+  auto encodedSamples = encode7Samples(inputSamples, 10);
+  auto decodedSamples = decode7Samples(encodedSamples, 0.1);
+
+  ASSERT_EQ(inputSamples.size(), decodedSamples.size());
+
+  for (auto i = 0; i < inputSamples.size(); ++i) {
+    ASSERT_NEAR(inputSamples[i], decodedSamples[i], 0.00001f);
+  }
+}
+
+TEST(Encode, AllZeros) {
+  const auto inputSamples = std::vector<double>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+  auto encodedSamples = encode7Samples(inputSamples, 10);
+  auto decodedSamples = decode7Samples(encodedSamples, 0.1);
+
+  ASSERT_EQ(inputSamples.size(), decodedSamples.size());
+
+  for (const auto decoded : decodedSamples) {
+    ASSERT_EQ(0, decoded);
+  }
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {

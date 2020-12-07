@@ -440,6 +440,16 @@ public:
                          const size_t predicted_count_hint = 256);
 
   /**
+   * Adds elevation samples for an edge
+   * @param  samples  Encoded string of elevation samples
+   */
+  void AddEdgeElevationSamples(const std::string& samples);
+
+  const std::vector<uint16_t>& EdgeElevationSampleSizes() const noexcept;
+
+  const std::vector<char>& EdgeElevationSamples() const noexcept;
+
+  /**
    * Updates a tile with predictive speed data. Also updates directed edges with
    * free flow and constrained flow speeds and the predicted traffic flag. The
    * predicted traffic is written after turn lane data.
@@ -556,6 +566,13 @@ protected:
 
   // Predicted speed profiles. 200 short int for each directed edge which has predicted speed.
   std::vector<int16_t> speed_profile_builder_;
+
+  // Size of each encoded edge elevation string
+  std::vector<uint16_t> edge_elevation_sample_sizes_;
+
+  // The elevation samples blob.
+  // Encoded edge elevation sample strings in the same order as their corresponding edges.
+  std::vector<char> edge_elevation_samples_;
 
   // lane connectivity list offset
   uint32_t lane_connectivity_offset_ = 0;
