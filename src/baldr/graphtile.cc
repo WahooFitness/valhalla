@@ -333,16 +333,6 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
       reinterpret_cast<LaneConnectivity*>(tile_ptr + header_->lane_connectivity_offset());
   lane_connectivity_size_ = header_->predictedspeeds_offset() - header_->lane_connectivity_offset();
 
-  const char* elevation_ptr = tile_ptr + header_->elevation_samples_offset();
-  edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_ptr);
-
-  elevation_ptr += header_->directededgecount() * sizeof(uint16_t);
-  edge_elevation_samples_.reserve(header_->directededgecount());
-  for (auto i = 0; i < header_->directededgecount(); ++i) {
-    edge_elevation_samples_.push_back(elevation_ptr);
-    elevation_ptr += edge_elevation_sample_sizes_[i];
-  }
-
   // Start of predicted speed data.
   if (header_->predictedspeeds_count() > 0) {
     char* ptr1 = tile_ptr + header_->predictedspeeds_offset();
@@ -360,6 +350,18 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
   // example_size_ = header_->end_offset() - header_->example_offset();
 
   // ANY NEW EXPANSION DATA GOES HERE
+
+  if (header_->elevation_samples_offset() != 0) {
+    const auto elevation_size_ptr = reinterpret_cast<const char*>(tile_ptr) + header_->elevation_samples_offset();
+    edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_size_ptr);
+
+    auto elevation_ptr = elevation_size_ptr + (header_->directededgecount() * sizeof(uint16_t));
+    edge_elevation_samples_.reserve(header_->directededgecount());
+    for (auto i = 0; i < header_->directededgecount(); ++i) {
+      edge_elevation_samples_.push_back(elevation_ptr);
+      elevation_ptr += edge_elevation_sample_sizes_[i];
+    }
+  }
 
   // Associate one stop Ids for transit tiles
   if (graphid.level() == 3) {

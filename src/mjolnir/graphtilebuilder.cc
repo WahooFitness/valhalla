@@ -202,6 +202,24 @@ GraphTileBuilder::GraphTileBuilder(const std::string& tile_dir,
   lane_connectivity_builder_.reserve(n);
   std::copy(lane_connectivity_, lane_connectivity_ + n,
             std::back_inserter(lane_connectivity_builder_));
+
+  if (header_->elevation_samples_offset() != 0) {
+    const auto edge_count = header_->directededgecount();
+    edge_elevation_sample_sizes_.reserve(edge_count);
+    edge_elevation_samples_.reserve(edge_count);
+
+    const auto elevation_size_ptr = reinterpret_cast<uint16_t*>(graphtile_->data() +
+                                                                header_->elevation_samples_offset());
+    auto total_data_length = size_t{0};
+    for (auto i = 0; i < edge_count; ++i) {
+      edge_elevation_sample_sizes_.push_back(elevation_size_ptr[i]);
+      total_data_length += elevation_size_ptr[i];
+    }
+
+    const auto elevation_data_ptr = reinterpret_cast<char*>(elevation_size_ptr + edge_count);
+    edge_elevation_samples_ =
+        std::vector<char>(elevation_data_ptr, elevation_data_ptr + total_data_length);
+  }
 }
 
 // Output the tile to file. Stores as binary data.
@@ -344,18 +362,21 @@ void GraphTileBuilder::StoreTileData() {
     in_mem.write(reinterpret_cast<const char*>(lane_connectivity_builder_.data()),
                  lane_connectivity_builder_.size() * sizeof(LaneConnectivity));
 
+    // Write edge elevation samples if we have them
     if (!edge_elevation_samples_.empty()) {
       padding = padStream(in_mem);
 
       header_builder_.set_elevation_samples_offset(header_builder_.lane_connectivity_offset() +
-                                                   padding);
-      const auto sizeBefore = in_mem.tellp();
+                                                       (lane_connectivity_builder_.size() *
+                                                       sizeof(LaneConnectivity)) + padding);
       in_mem.write(reinterpret_cast<const char*>(edge_elevation_sample_sizes_.data()),
                    edge_elevation_sample_sizes_.size() * sizeof(uint16_t));
       in_mem.write(edge_elevation_samples_.data(), edge_elevation_samples_.size());
 
+      padding = padStream(in_mem);
       header_builder_.set_end_offset(header_builder_.elevation_samples_offset() +
-                                     (in_mem.tellp() - sizeBefore));
+                                     (edge_elevation_sample_sizes_.size() * sizeof(uint16_t)) +
+                                     edge_elevation_samples_.size() + padding);
     } else {
       header_builder_.set_end_offset(header_builder_.lane_connectivity_offset() +
                                      (lane_connectivity_builder_.size() * sizeof(LaneConnectivity)));
@@ -1010,6 +1031,10 @@ void GraphTileBuilder::AddBins(const std::string& tile_dir,
   header.set_edgeinfo_offset(header.edgeinfo_offset() + shift);
   header.set_textlist_offset(header.textlist_offset() + shift);
   header.set_lane_connectivity_offset(header.lane_connectivity_offset() + shift);
+  const auto elevation_samples_offset = header.elevation_samples_offset();
+  if (elevation_samples_offset != 0) {
+    header.set_elevation_samples_offset(elevation_samples_offset + shift);
+  }
   header.set_end_offset(header.end_offset() + shift);
   // rewrite the tile
   filesystem::path filename =
