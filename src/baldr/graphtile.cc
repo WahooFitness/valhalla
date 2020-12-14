@@ -331,7 +331,6 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
   // Start of lane connections and their size
   lane_connectivity_ =
       reinterpret_cast<LaneConnectivity*>(tile_ptr + header_->lane_connectivity_offset());
-  lane_connectivity_size_ = header_->predictedspeeds_offset() - header_->lane_connectivity_offset();
 
   // Start of predicted speed data.
   if (header_->predictedspeeds_count() > 0) {
@@ -340,9 +339,15 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
     predictedspeeds_.set_offset(reinterpret_cast<uint32_t*>(ptr1));
     predictedspeeds_.set_profiles(reinterpret_cast<int16_t*>(ptr2));
 
-    lane_connectivity_size_ = header_->predictedspeeds_offset() - header_->lane_connectivity_offset();
-  } else {
+    if (header_->elevation_samples_offset() == 0) {
+      lane_connectivity_size_ = header_->predictedspeeds_offset() - header_->lane_connectivity_offset();
+    } else {
+      lane_connectivity_size_ = header_->elevation_samples_offset() - header_->lane_connectivity_offset();
+    }
+  } else if (header_->elevation_samples_offset() == 0) {
     lane_connectivity_size_ = header_->end_offset() - header_->lane_connectivity_offset();
+  } else {
+    lane_connectivity_size_ = header_->elevation_samples_offset() - header_->lane_connectivity_offset();
   }
 
   // For reference - how to use the end offset to set size of an object (that
@@ -352,7 +357,8 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
   // ANY NEW EXPANSION DATA GOES HERE
 
   if (header_->elevation_samples_offset() != 0) {
-    const auto elevation_size_ptr = reinterpret_cast<const char*>(tile_ptr) + header_->elevation_samples_offset();
+    const auto elevation_size_ptr =
+        reinterpret_cast<const char*>(tile_ptr) + header_->elevation_samples_offset();
     edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_size_ptr);
 
     auto elevation_ptr = elevation_size_ptr + (header_->directededgecount() * sizeof(uint16_t));
@@ -369,7 +375,7 @@ void GraphTile::Initialize(const GraphId& graphid, char* tile_ptr, const size_t 
   }
 }
 
-std::string_view GraphTile::elevationSampleAtIndex(uint16_t directedEdgeIndex) const {
+std::string_view GraphTile::elevationSampleAtIndex(uint32_t directedEdgeIndex) const {
   if (edge_elevation_samples_.empty()) {
     return std::string_view{};
   }

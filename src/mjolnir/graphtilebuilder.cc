@@ -364,11 +364,9 @@ void GraphTileBuilder::StoreTileData() {
 
     // Write edge elevation samples if we have them
     if (!edge_elevation_samples_.empty()) {
-      padding = padStream(in_mem);
+      padStream(in_mem);
+      header_builder_.set_elevation_samples_offset(sizeof(GraphTileHeader) + in_mem.tellp());
 
-      header_builder_.set_elevation_samples_offset(header_builder_.lane_connectivity_offset() +
-                                                       (lane_connectivity_builder_.size() *
-                                                       sizeof(LaneConnectivity)) + padding);
       in_mem.write(reinterpret_cast<const char*>(edge_elevation_sample_sizes_.data()),
                    edge_elevation_sample_sizes_.size() * sizeof(uint16_t));
       in_mem.write(edge_elevation_samples_.data(), edge_elevation_samples_.size());
@@ -378,6 +376,7 @@ void GraphTileBuilder::StoreTileData() {
                                      (edge_elevation_sample_sizes_.size() * sizeof(uint16_t)) +
                                      edge_elevation_samples_.size() + padding);
     } else {
+      header_builder_.set_elevation_samples_offset(0);
       header_builder_.set_end_offset(header_builder_.lane_connectivity_offset() +
                                      (lane_connectivity_builder_.size() * sizeof(LaneConnectivity)));
     }
