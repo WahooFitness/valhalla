@@ -629,7 +629,18 @@ iterable_t<const DirectedEdge> GraphTile::GetDirectedEdges(const size_t idx) con
 
 // Get a pointer to edge info.
 EdgeInfo GraphTile::edgeinfo(const size_t offset) const {
-  return EdgeInfo(edgeinfo_ + offset, textlist_, textlist_size_);
+  return EdgeInfo(edgeinfo_ + offset, textlist_, textlist_size_, nullptr, 0);
+}
+
+EdgeInfo GraphTile::GetEdgeInfoFromIndex(size_t index) const {
+  const auto offset = directededges_[index].edgeinfo_offset();
+  if (edge_elevation_sample_sizes_ == nullptr) {
+    return edgeinfo(offset);
+  }
+
+  return EdgeInfo(edgeinfo_ + offset, textlist_, textlist_size_,
+                  edge_elevation_samples_[index],
+                  edge_elevation_sample_sizes_[index]);
 }
 
 // Get the complex restrictions in the forward or reverse order based on
@@ -1080,6 +1091,16 @@ uint32_t GraphTile::turnlanes_offset(const uint32_t idx) const {
   }
   auto tl = std::lower_bound(&turnlanes_[0], &turnlanes_[count], TurnLanes(idx, 0));
   return tl != &turnlanes_[count] ? tl->text_offset() : 0;
+}
+
+size_t GraphTile::DirectedEdgeIndexFromOffset(size_t offset) const {
+  for (auto i = 0; i < header_->directededgecount(); ++i) {
+    if (offset == directededges_[i].edgeinfo_offset()) {
+      return i;
+    }
+  }
+
+  return std::numeric_limits<size_t>::max();
 }
 
 } // namespace baldr

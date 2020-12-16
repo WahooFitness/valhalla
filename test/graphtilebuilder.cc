@@ -398,6 +398,31 @@ TEST(GraphTileBuilder, TestWriteElevationData) {
   ASSERT_TRUE(thirdSamples == thirdString);
 }
 
+TEST(GraphTileBuilder, TestReadRealTile) {
+  auto graphReaderConfig = boost::property_tree::ptree{};
+  std::string tileDir = VALHALLA_SOURCE_DIR "test/data/elevation_tiles";
+  graphReaderConfig.put("tile_dir", tileDir);
+  GraphReader graphReader{graphReaderConfig};
+
+  auto testGraphId = GraphId{753545, 2, 0};
+  auto tile = graphReader.GetGraphTile(testGraphId);
+
+  ASSERT_NE(0, tile->header()->elevation_samples_offset());
+
+  const auto expectedValues = std::vector<double>{26.6,25.7,25.5,23.4,22.1,21.2,18,17.6,17.4,10.5,
+                                                  10.6,8.6,7.1,7.1,6.6,5.7,5,4.6};
+
+  const auto index = tile->DirectedEdgeIndexFromOffset(11112);
+  auto edgeInfo = tile->GetEdgeInfoFromIndex(index);
+  const auto elevationSamples = edgeInfo.elevation_samples();
+
+  ASSERT_EQ(expectedValues.size(), elevationSamples.size());
+  for (auto i = 0; i < expectedValues.size(); ++i) {
+    ASSERT_NEAR(expectedValues[i], elevationSamples[i], 0.01);
+  }
+}
+
+
 } // namespace
 
 int main(int argc, char* argv[]) {

@@ -29,14 +29,16 @@ json::ArrayPtr names_json(const std::vector<std::string>& names) {
 namespace valhalla {
 namespace baldr {
 
-EdgeInfo::EdgeInfo(char* ptr, const char* names_list, const size_t names_list_length)
-    : names_list_(names_list), names_list_length_(names_list_length) {
+EdgeInfo::EdgeInfo(const char* ptr, const char* names_list, const size_t names_list_length,
+                   const char* elevation_samples, size_t elevation_samples_size)
+    : names_list_(names_list), names_list_length_(names_list_length),
+      elevation_samples_(elevation_samples), elevation_samples_size_(elevation_samples_size) {
 
-  ei_ = *reinterpret_cast<EdgeInfoInner*>(ptr);
+  ei_ = *reinterpret_cast<const EdgeInfoInner*>(ptr);
   ptr += sizeof(EdgeInfoInner);
 
   // Set name info list pointer
-  name_info_list_ = reinterpret_cast<NameInfo*>(ptr);
+  name_info_list_ = reinterpret_cast<const NameInfo*>(ptr);
   ptr += (name_count() * sizeof(NameInfo));
 
   // Set encoded_shape_ pointer
@@ -178,6 +180,18 @@ const std::vector<midgard::PointLL>& EdgeInfo::shape() const {
 std::string EdgeInfo::encoded_shape() const {
   return encoded_shape_ == nullptr ? midgard::encode7(shape_)
                                    : std::string(encoded_shape_, ei_.encoded_shape_size_);
+}
+
+std::string_view EdgeInfo::encoded_elevation_samples() const {
+  if (elevation_samples_ == nullptr) {
+    return std::string_view();
+  }
+
+  return std::string_view(elevation_samples_, elevation_samples_size_);
+}
+
+std::vector<double> EdgeInfo::elevation_samples() const {
+  return midgard::decode7Samples(encoded_elevation_samples(), kElevationSampleDecodePrecision);
 }
 
 json::MapPtr EdgeInfo::json() const {

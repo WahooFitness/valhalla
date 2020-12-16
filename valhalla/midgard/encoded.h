@@ -54,7 +54,7 @@ std::string encode7Samples(const std::vector<double>& values, int precision);
  * stored in the string. (0.01, 0.001, 0.0001, etc)
  * @return
  */
-std::vector<double> decode7Samples(const std::string& encodedString,
+std::vector<double> decode7Samples(std::string_view encodedString,
                                    double precision) noexcept(false);
 
 template <typename Point> class Shape7Decoder {

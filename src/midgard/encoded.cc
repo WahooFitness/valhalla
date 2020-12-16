@@ -47,7 +47,7 @@ std::string encode7Samples(const std::vector<double>& values, int precision) {
   return output;
 }
 
-std::vector<double> decode7Samples(const std::string& encodedString,
+std::vector<double> decode7Samples(std::string_view encodedString,
                                    double precision) noexcept(false) {
   auto decoded = std::vector<double>{};
 

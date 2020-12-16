@@ -26,6 +26,9 @@ constexpr float kElevationBinSize = 2.0f;
 constexpr float kMinElevation = -500.0f;
 constexpr float kMaxElevation = kMinElevation + (kElevationBinSize * kMaxStoredElevation);
 
+constexpr int kElevationSampleEncodePrecision = 10;
+constexpr double kElevationSampleDecodePrecision = 0.1;
+
 // Name information. Information about names added to the names list within
 // the tile. A name can have a textual representation followed by optional
 // fields that provide additional information about the name.
@@ -71,8 +74,11 @@ public:
    * @param  ptr  Pointer to a bit of memory that has the info for this edge
    * @param  names_list  Pointer to the start of the text/names list.
    * @param  names_list_length  Length (bytes) of the text/names list.
+   * @param elevation_samples Pointer to encoded elevation samples block
+   * @param elevation_samples_size Length, in bytes, of encoded elevation samples block
    */
-  EdgeInfo(char* ptr, const char* names_list, const size_t names_list_length);
+  EdgeInfo(const char* ptr, const char* names_list, const size_t names_list_length,
+           const char* elevation_samples = nullptr, size_t elevation_samples_size = 0);
 
   /**
    * Destructor
@@ -183,6 +189,18 @@ public:
   std::string encoded_shape() const;
 
   /**
+   * Returns a block of encoded elevation samples
+   * @return Returns the encoded elevation sample string
+   */
+  std::string_view encoded_elevation_samples() const;
+
+  /**
+   * Gets elevation samples corresponding to the edge shape
+   * @return List of elevation values corresponding to shape points
+   */
+  std::vector<double> elevation_samples() const;
+
+  /**
    * Returns json representing this object
    * @return json object
    */
@@ -229,6 +247,12 @@ protected:
 
   // The size of the names list
   size_t names_list_length_;
+
+  // encoded elevation data within the tile
+  const char* elevation_samples_;
+
+  // length of encoded elevation data
+  size_t elevation_samples_size_;
 };
 
 } // namespace baldr

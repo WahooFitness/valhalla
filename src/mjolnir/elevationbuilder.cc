@@ -169,21 +169,18 @@ void add_elevation(const boost::property_tree::ptree& pt,
   }
 }
 
-constexpr int elevationSampleEncodePrecision = 10;
-
 void add_edge_elevation(uint32_t edgeIndex,
                         GraphTileBuilder& tileBuilder,
                         const valhalla::skadi::sample* sample) {
   const auto& directedEdge = tileBuilder.directededge(edgeIndex);
   const auto edgeInfo = tileBuilder.edgeinfo(directedEdge.edgeinfo_offset());
-  auto heights = sample->get_all(edgeInfo.shape());
+  const auto heights = sample->get_all(edgeInfo.shape());
 
   if (!directedEdge.forward()) {
     std::reverse(std::begin(heights), std::end(heights));
   }
 
-  auto encoded = encode7Samples(heights, elevationSampleEncodePrecision);
-  tileBuilder.AddEdgeElevationSamples(encoded);
+  tileBuilder.AddEdgeElevationSamples(encode7Samples(heights, kElevationSampleEncodePrecision));
 }
 
 } // namespace

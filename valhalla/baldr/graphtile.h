@@ -309,6 +309,14 @@ public:
   EdgeInfo edgeinfo(const size_t offset) const;
 
   /**
+   * Gets an EdgeInfo using its corresponding directed edge index.
+   * This will also initialize the tile with elevation data if it is available.
+   * @param index Index of directed edge to get edge info for
+   * @return EdgeInfo at specified index
+   */
+   EdgeInfo GetEdgeInfoFromIndex(size_t index) const;
+
+  /**
    * Get the complex restrictions in the forward or reverse order.
    * @param   forward - do we want the restrictions in reverse order?
    * @param   id - edge id
@@ -657,6 +665,13 @@ public:
         traffic_tile.trafficspeed(static_cast<uint32_t>(edge - directededges_));
     return live_speed.closed();
   }
+
+  /**
+   * Computes a directed edge index from an offset
+   * @param offset Offset within tile
+   * @return Index of directed edge or size_t's max value if not found
+   */
+  size_t DirectedEdgeIndexFromOffset(size_t offset) const;
 
   const TrafficTile& get_traffic_tile() const {
     return traffic_tile;
