@@ -420,6 +420,12 @@ TEST(GraphTileBuilder, TestReadRealTile) {
   for (auto i = 0; i < expectedValues.size(); ++i) {
     ASSERT_NEAR(expectedValues[i], elevationSamples[i], 0.01);
   }
+
+  const auto directedEdgeCount = tile->header()->directededgecount();
+  for (auto i = 0; i < directedEdgeCount; ++i) {
+    const auto info = tile->GetEdgeInfoFromIndex(i);
+    ASSERT_EQ(info.shape().size(), info.elevation_samples().size());
+  }
 }
 
 
