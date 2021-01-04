@@ -410,6 +410,7 @@ void DirectionsBuilder::PopulateDirectionsLeg(const Options& options,
 
   // Populate shape
   trip_directions.set_shape(etp->shape());
+  trip_directions.set_elevation_samples(etp->elevation_samples());
 
   // Populate has_time_restrictions
   bool has_time_restrictions = false;

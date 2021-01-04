@@ -330,6 +330,7 @@ message TripLeg {
   optional ShapeAttributes shape_attributes = 10;
   repeated Incident incidents = 11;
   repeated string algorithms = 12;
+  optional string elevation_samples = 13;
 }
 
 message TripRoute {

@@ -207,6 +207,7 @@ message DirectionsLeg {
   optional Summary summary = 5;
   repeated Maneuver maneuver = 6;
   optional string shape = 7;
+  optional string elevation_samples = 8;
 }
 
 message DirectionsRoute {

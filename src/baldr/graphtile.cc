@@ -384,7 +384,7 @@ void GraphTile::Initialize(const GraphId& graphid) {
 
   // ANY NEW EXPANSION DATA GOES HERE
 
-  if (header_->elevation_samples_offset() != 0) {
+  if (header_->has_elevation_samples()) {
     const auto elevation_size_ptr =
         reinterpret_cast<const char*>(tile_ptr) + header_->elevation_samples_offset();
     edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_size_ptr);

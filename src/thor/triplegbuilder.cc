@@ -304,7 +304,7 @@ void SetShapeAttributes(const AttributesController& controller,
 }
 
 // Set the bounding box (min,max lat,lon) for the shape
-void SetBoundingBox(TripLeg& trip_path, std::vector<PointLL>& shape) {
+void SetBoundingBox(TripLeg& trip_path, const std::vector<PointLL>& shape) {
   AABB2<PointLL> bbox(shape);
   LatLng* min_ll = trip_path.mutable_bbox()->mutable_min_ll();
   min_ll->set_lat(bbox.miny());
@@ -550,15 +550,11 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
     if (!node_signs.empty()) {
       TripLeg_Sign* trip_sign = trip_edge->mutable_sign();
       for (const auto& sign : node_signs) {
-        switch (sign.type()) {
-          case Sign::Type::kJunctionName: {
-            if (controller.attributes.at(kEdgeSignJunctionName)) {
-              auto* trip_sign_junction_name = trip_sign->mutable_junction_names()->Add();
-              trip_sign_junction_name->set_text(sign.text());
-              trip_sign_junction_name->set_is_route_number(sign.is_route_num());
-            }
-            break;
-          }
+        if (sign.type() == Sign::Type::kJunctionName &&
+            controller.attributes.at(kEdgeSignJunctionName)) {
+          auto* trip_sign_junction_name = trip_sign->mutable_junction_names()->Add();
+          trip_sign_junction_name->set_text(sign.text());
+          trip_sign_junction_name->set_is_route_number(sign.is_route_num());
         }
       }
     }
@@ -1004,6 +1000,92 @@ void AccumulateRecostingInfoForward(const valhalla::Options& options,
   }
 }
 
+// For carrying elevation data alongside a shape point
+class TripPoint : public PointLL {
+public:
+  TripPoint(const PointLL& p, float elevation) : PointLL(p), elevation_(elevation) {
+  }
+
+public:
+  float elevation() const noexcept {
+    return elevation_;
+  }
+
+  std::string to_string() const noexcept {
+    return "(" + std::to_string(lat()) + ", " + std::to_string(lng()) + ") " +
+           std::to_string(elevation_);
+  }
+
+private:
+  const float elevation_;
+};
+
+/// Retrieves elevation samples for a trip shape from corresponding edge elevation samples
+/// @param trip_shape_begin First trip shape point to look up
+/// @param trip_shape_end Iterator pointing to one past the past point to look up
+/// @param elevation_samples Samples used for look up
+/// @return Elevation samples for shape. The number of samples should match the distance between
+/// the input iterators.
+template <typename iterator_t>
+std::vector<double> elevationFromTrimmedPath(iterator_t trip_shape_begin,
+                                             iterator_t trip_shape_end,
+                                             const std::vector<TripPoint>& elevation_samples) {
+
+  auto final_samples = std::vector<double>{};
+
+  if (elevation_samples.empty()) {
+    return final_samples;
+  }
+
+  for (auto point = trip_shape_begin; point != trip_shape_end; ++point) {
+    LOG_INFO("Elevation matching point (" + std::to_string(point->lat()) + ", " +
+              std::to_string(point->lng()) + ")");
+    auto elevation_sample = std::find_if(std::begin(elevation_samples), std::end(elevation_samples),
+                     [point](const TripPoint& trip_point) {
+                       return point->ApproximatelyEqual(trip_point, .0001f);
+                     });
+    if (elevation_sample != std::end(elevation_samples)) {
+      final_samples.push_back(elevation_sample->elevation());
+    } else {
+      // the first point or last point might be in the middle of two elevation samples
+      // make a weighted average
+      auto next_closest_sample = std::end(elevation_samples);
+      auto next_closest_distance = std::numeric_limits<double>::max();
+      auto closest_sample = std::end(elevation_samples);
+      auto closest_distance = std::numeric_limits<double>::max();
+      for (auto sample = std::begin(elevation_samples); sample != std::end(elevation_samples); ++sample) {
+        auto distance = sample->Distance(*point);
+        if (distance < closest_distance) {
+          closest_sample = sample;
+          closest_distance = distance;
+        } else if (distance < next_closest_distance) {
+          next_closest_sample = sample;
+          next_closest_distance = distance;
+        }
+      }
+
+      if (closest_sample != std::end(elevation_samples) &&
+          next_closest_sample != std::end(elevation_samples)) {
+        const auto total_distance = closest_distance + next_closest_distance;
+        const auto distance_ratio = closest_distance / total_distance;
+        const auto elevation = closest_sample->elevation() * (1.0 - distance_ratio) +
+                               next_closest_sample->elevation() * distance_ratio;
+        final_samples.push_back(elevation);
+      } else {
+        const auto shape_string = encode(elevation_samples, 1e5);
+
+        LOG_DEBUG("Using closest sample " + closest_sample->to_string() + " " +
+                 std::to_string(closest_distance) + " meters away from point " +
+                 std::to_string(point->lat()) + ", " + std::to_string(point->lng()) + ")");
+        LOG_DEBUG("Shape string is " + shape_string);
+        final_samples.push_back(closest_sample->elevation());
+      }
+    }
+  }
+
+  return final_samples;
+}
+
 } // namespace
 
 namespace valhalla {
@@ -1116,6 +1198,7 @@ void TripLegBuilder::Build(
   // Iterate through path
   uint32_t prior_opp_local_index = -1;
   std::vector<PointLL> trip_shape;
+  std::vector<double> trip_elevation_shape;
   uint64_t osmchangeset = 0;
   size_t edge_index = 0;
   const DirectedEdge* prev_de = nullptr;
@@ -1213,10 +1296,25 @@ void TripLegBuilder::Build(
 
     // Process the shape for edges where a route discontinuity occurs
     uint32_t begin_index = (is_first_edge) ? 0 : trip_shape.size() - 1;
-    auto edgeinfo = graphtile->edgeinfo(directededge->edgeinfo_offset());
+    auto index = graphtile->DirectedEdgeIndexFromOffset(directededge->edgeinfo_offset());
+    auto edgeinfo = index != std::numeric_limits<size_t>::max()
+                        ? graphtile->GetEdgeInfoFromIndex(index)
+                        : graphtile->edgeinfo(directededge->edgeinfo_offset());
+
+    auto edge_shape = edgeinfo.shape();
+    const auto elevation_shape = edgeinfo.elevation_samples();
+    auto trip_points = std::vector<TripPoint>{};
+    if (edge_shape.size() == elevation_shape.size()) {
+      trip_points.reserve(edge_shape.size());
+      for (auto i = 0; i < edge_shape.size(); ++i) {
+        trip_points.emplace_back(edge_shape[i], elevation_shape[i]);
+      }
+    }
+
+    auto edge_elevation = std::vector<double>{};
+
     if (edge_trimming && !edge_trimming->empty() && edge_trimming->count(edge_index) > 0) {
       // Get edge shape and reverse it if directed edge is not forward.
-      auto edge_shape = edgeinfo.shape();
       if (!directededge->forward()) {
         std::reverse(edge_shape.begin(), edge_shape.end());
       }
@@ -1260,6 +1358,8 @@ void TripLegBuilder::Build(
       // trip_shape.insert(trip_shape.end(), edge_shape.begin() + !is_first_edge, edge_shape.end());
       trip_shape.insert(trip_shape.end(), edge_shape.begin() + !edge_begin_info.trim,
                         edge_shape.end());
+      edge_elevation = elevationFromTrimmedPath(edge_shape.begin() + !edge_begin_info.trim,
+                                                edge_shape.end(), trip_points);
 
       // If edge_begin_info.trim and is not the first edge then increment begin_index since
       // the previous end shape index should not equal the current begin shape index because
@@ -1287,14 +1387,24 @@ void TripLegBuilder::Build(
       }
       // Keep the shape
       trip_shape.insert(trip_shape.end(), edge_shape.begin() + !is_first_edge, edge_shape.end());
+      edge_elevation = elevationFromTrimmedPath(edge_shape.begin() + !is_first_edge,
+                                                edge_shape.end(), trip_points);
+
     } // Just get the shape in there in the right direction no clipping needed
     else {
       if (directededge->forward()) {
         trip_shape.insert(trip_shape.end(), edgeinfo.shape().begin() + 1, edgeinfo.shape().end());
+        edge_elevation = elevationFromTrimmedPath(edgeinfo.shape().begin() + 1,
+                                                  edgeinfo.shape().end(), trip_points);
       } else {
         trip_shape.insert(trip_shape.end(), edgeinfo.shape().rbegin() + 1, edgeinfo.shape().rend());
+        edge_elevation = elevationFromTrimmedPath(edgeinfo.shape().rbegin() + 1,
+                                                  edgeinfo.shape().rend(), trip_points);
       }
     }
+
+    trip_elevation_shape.insert(std::end(trip_elevation_shape), std::begin(edge_elevation),
+                                std::end(edge_elevation));
 
     // Set the portion of the edge we used
     // TODO: attributes controller and then use this in recosting
@@ -1389,6 +1499,11 @@ void TripLegBuilder::Build(
   // Set shape if requested
   if (controller.attributes.at(kShape)) {
     trip_path.set_shape(encode<std::vector<PointLL>>(trip_shape));
+  }
+
+  if (!trip_elevation_shape.empty()) {
+    trip_path.set_elevation_samples(
+        encode7Samples(trip_elevation_shape, kElevationSampleEncodePrecision));
   }
 
   if (osmchangeset != 0 && controller.attributes.at(kOsmChangeset)) {

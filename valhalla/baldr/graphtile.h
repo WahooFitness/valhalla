@@ -775,7 +775,7 @@ protected:
   LaneConnectivity* lane_connectivity_{};
 
   // Array of edge elevation sample sizes
-  const uint16_t* edge_elevation_sample_sizes_;
+  const uint16_t* edge_elevation_sample_sizes_ = nullptr;
 
   // Pointers to the edge elevation samples
   std::vector<const char*> edge_elevation_samples_;

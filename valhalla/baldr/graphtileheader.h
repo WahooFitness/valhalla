@@ -481,6 +481,14 @@ public:
   }
 
   /**
+   * Whether or not the tile contains elevation samples along the edge paths
+   * @return True if the tile contains elevation samples along the edge paths
+   */
+  bool has_elevation_samples() const {
+    return elevation_samples_offset_ != 0 && elevation_samples_offset_ < tile_size_;
+  }
+
+  /**
    * Gets the offseet to the elevation samples
    * @return Returns the number of bytes to offset of the elevation samples
    */

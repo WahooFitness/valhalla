@@ -390,6 +390,7 @@ TEST(GraphTileBuilder, TestWriteElevationData) {
 
   auto tile = graphReader.GetGraphTile(testGraphId);
   ASSERT_NE(tile, nullptr);
+  ASSERT_TRUE(tile->header()->has_elevation_samples());
   ASSERT_EQ(tile->header()->elevation_samples_offset(), graphTileBuilder.header_builder().elevation_samples_offset());
 
   auto firstSamples = tile->elevationSampleAtIndex(0);
@@ -411,6 +412,7 @@ TEST(GraphTileBuilder, TestReadRealTile) {
   auto testGraphId = GraphId{753545, 2, 0};
   auto tile = graphReader.GetGraphTile(testGraphId);
 
+  ASSERT_TRUE(tile->header()->has_elevation_samples());
   ASSERT_NE(0, tile->header()->elevation_samples_offset());
 
   const auto expectedValues = std::vector<double>{26.6,25.7,25.5,23.4,22.1,21.2,18,17.6,17.4,10.5,

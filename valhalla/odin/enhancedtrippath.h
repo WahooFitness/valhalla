@@ -86,6 +86,10 @@ public:
     return trip_path_.bbox();
   }
 
+  const std::string& elevation_samples() const {
+    return trip_path_.elevation_samples();
+  }
+
   std::unique_ptr<EnhancedTripLeg_Node> GetEnhancedNode(const int node_index);
 
   std::unique_ptr<EnhancedTripLeg_Edge> GetPrevEdge(const int node_index, int delta = 1);
