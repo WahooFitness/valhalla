@@ -18,7 +18,6 @@
 #include <valhalla/proto/trip.pb.h>
 #include <valhalla/sif/costfactory.h>
 #include <valhalla/sif/edgelabel.h>
-#include <valhalla/thor/astar.h>
 #include <valhalla/thor/astar_bss.h>
 #include <valhalla/thor/attributes_controller.h>
 #include <valhalla/thor/bidirectional_astar.h>
@@ -112,17 +111,16 @@ protected:
   std::vector<meili::Measurement> trace;
   sif::CostFactory factory;
   sif::mode_costing_t mode_costing;
+
   // Path algorithms (TODO - perhaps use a map?))
-  AStarPathAlgorithm astar;
   BidirectionalAStar bidir_astar;
   AStarBSSAlgorithm bss_astar;
-
   MultiModalPathAlgorithm multi_modal_astar;
   TimeDepForward timedep_forward;
   TimeDepReverse timedep_reverse;
+
   Isochrone isochrone_gen;
   std::shared_ptr<meili::MapMatcher> matcher;
-  float long_request;
   float max_timedep_distance;
   std::unordered_map<std::string, float> max_matrix_distance;
   SOURCE_TO_TARGET_ALGORITHM source_to_target_algorithm;

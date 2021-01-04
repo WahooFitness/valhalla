@@ -118,14 +118,14 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
                                        const bool invariant) {
   // Get the tile and the node info. Skip if tile is null (can happen
   // with regional data sets) or if no access at the node.
-  const GraphTile* tile = graphreader.GetGraphTile(node);
+  graph_tile_ptr tile = graphreader.GetGraphTile(node);
   if (tile == nullptr) {
     return false;
   }
   const NodeInfo* nodeinfo = tile->node(node);
-  if (!costing_->Allowed(nodeinfo)) {
-    return false;
-  }
+
+  // Keep track of superseded edges
+  uint32_t shortcuts = 0;
 
   // Update the time information even if time is invariant to account for timezones
   auto seconds_offset = invariant ? 0.f : pred.cost().secs;
@@ -133,11 +133,20 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
                          ? time_info
                          : time_info.forward(seconds_offset, static_cast<int>(nodeinfo->timezone()));
 
-  uint32_t shortcuts = 0;
-  EdgeMetadata meta = EdgeMetadata::make(node, nodeinfo, tile, edgestatus_forward_);
+  // If we encounter a node with an access restriction like a barrier we allow a uturn
+  if (!costing_->Allowed(nodeinfo)) {
+    const DirectedEdge* opp_edge;
+    const GraphId opp_edge_id = graphreader.GetOpposingEdgeId(pred.edgeid(), opp_edge, tile);
+    // Check if edge is null before using it (can happen with regional data sets)
+    return opp_edge &&
+           ExpandForwardInner(graphreader, pred, nodeinfo, pred_idx,
+                              {opp_edge, opp_edge_id, edgestatus_forward_.GetPtr(opp_edge_id, tile)},
+                              shortcuts, tile, offset_time);
+  }
 
-  bool found_valid_edge = false;
+  bool disable_uturn = false;
   bool found_uturn = false;
+  EdgeMetadata meta = EdgeMetadata::make(node, nodeinfo, tile, edgestatus_forward_);
   EdgeMetadata uturn_meta = {};
 
   // Expand from end node in forward direction.
@@ -153,9 +162,9 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
       continue;
     }
 
-    found_valid_edge = ExpandForwardInner(graphreader, pred, nodeinfo, pred_idx, meta, shortcuts,
-                                          tile, offset_time) ||
-                       found_valid_edge;
+    disable_uturn = ExpandForwardInner(graphreader, pred, nodeinfo, pred_idx, meta, shortcuts, tile,
+                                       offset_time) ||
+                    disable_uturn;
   }
 
   // Handle transitions - expand from the end node of each transition
@@ -164,13 +173,13 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
     for (uint32_t i = 0; i < nodeinfo->transition_count(); ++i, ++trans) {
       if (trans->up()) {
         hierarchy_limits_forward_[node.level()].up_transition_count++;
-        found_valid_edge = ExpandForward(graphreader, trans->endnode(), pred, pred_idx, true,
-                                         offset_time, invariant) ||
-                           found_valid_edge;
+        disable_uturn = ExpandForward(graphreader, trans->endnode(), pred, pred_idx, true,
+                                      offset_time, invariant) ||
+                        disable_uturn;
       } else if (!hierarchy_limits_forward_[trans->endnode().level()].StopExpanding()) {
-        found_valid_edge = ExpandForward(graphreader, trans->endnode(), pred, pred_idx, true,
-                                         offset_time, invariant) ||
-                           found_valid_edge;
+        disable_uturn = ExpandForward(graphreader, trans->endnode(), pred, pred_idx, true,
+                                      offset_time, invariant) ||
+                        disable_uturn;
       }
     }
   }
@@ -178,7 +187,7 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
   if (!from_transition) {
     // Now, after having looked at all the edges, including edges on other levels,
     // we can say if this is a deadend or not, and if so, evaluate the uturn-edge (if it exists)
-    if (!found_valid_edge && found_uturn) {
+    if (!disable_uturn && found_uturn) {
       // If we found no suitable edge to add, it means we're at a deadend
       // so lets go back and re-evaluate a potential u-turn
 
@@ -191,16 +200,16 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
 
       // TODO Is there a shortcut that supersedes our u-turn?
       if (was_uturn_shortcut_added) {
-        found_valid_edge = true;
+        disable_uturn = true;
       } else {
         // We didn't add any shortcut of the uturn, therefore evaluate the regular uturn instead
         bool uturn_added = ExpandForwardInner(graphreader, pred, nodeinfo, pred_idx, uturn_meta,
                                               shortcuts, tile, offset_time);
-        found_valid_edge = found_valid_edge || uturn_added;
+        disable_uturn = disable_uturn || uturn_added;
       }
     }
   }
-  return found_valid_edge;
+  return disable_uturn;
 }
 
 // Runs in the inner loop of `ExpandForward`, essentially evaluating if
@@ -209,14 +218,19 @@ bool BidirectionalAStar::ExpandForward(GraphReader& graphreader,
 //
 // TODO: Merge this with ExpandReverseInner
 //
-// Returns true if any edge _could_ have been expanded after restrictions etc.
+// Returns false if uturns are allowed.
+// Returns true if we will expand or have expanded from this edge. In that case we disallow uturns.
+// Some edges we won't expand from, but we will still put them on the adjacency list in order to
+// connect the forward and reverse paths. In that case we return false to allow uturns only if this
+// edge is a not-thru edge that will be pruned.
+//
 inline bool BidirectionalAStar::ExpandForwardInner(GraphReader& graphreader,
                                                    const BDEdgeLabel& pred,
                                                    const NodeInfo* nodeinfo,
                                                    const uint32_t pred_idx,
                                                    const EdgeMetadata& meta,
                                                    uint32_t& shortcuts,
-                                                   const GraphTile* tile,
+                                                   const graph_tile_ptr& tile,
                                                    const TimeInfo& time_info) {
   // Skip shortcut edges until we have stopped expanding on the next level. Use regular
   // edges while still expanding on the next level since we can still transition down to
@@ -244,6 +258,7 @@ inline bool BidirectionalAStar::ExpandForwardInner(GraphReader& graphreader,
   // if its not time dependent set to 0 for Allowed and Restricted methods below
   const uint64_t localtime = time_info.valid ? time_info.local_time : 0;
   int restriction_idx = -1;
+
   if (!costing_->Allowed(meta.edge, pred, tile, meta.edge_id, localtime, time_info.timezone_index,
                          restriction_idx) ||
       costing_->Restricted(meta.edge, pred, edgelabels_forward_, tile, meta.edge_id, true,
@@ -266,11 +281,12 @@ inline bool BidirectionalAStar::ExpandForwardInner(GraphReader& graphreader,
       adjacencylist_forward_->decrease(meta.edge_status->index(), newsortcost);
       lab.Update(pred_idx, newcost, newsortcost, transition_cost, restriction_idx);
     }
-    return true; // Returning true since this means we approved the edge
+    // Returning true since this means we approved the edge
+    return true;
   }
 
   // Get end node tile (skip if tile is not found) and opposing edge Id
-  const GraphTile* t2 =
+  graph_tile_ptr t2 =
       meta.edge->leaves_tile() ? graphreader.GetGraphTile(meta.edge->endnode()) : tile;
   if (t2 == nullptr) {
     return false;
@@ -297,7 +313,10 @@ inline bool BidirectionalAStar::ExpandForwardInner(GraphReader& graphreader,
   if (expansion_callback_) {
     expansion_callback_(graphreader, "bidirectional_astar", meta.edge_id, "r", false);
   }
-  return true;
+
+  // we've just added this edge to the queue, but we won't expand from it if it's a not-thru edge that
+  // will be pruned. In that case we want to allow uturns.
+  return !(pred.not_thru_pruning() && meta.edge->not_thru());
 }
 
 // Expand from a node in reverse direction.
@@ -313,14 +332,14 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
                                        const bool invariant) {
   // Get the tile and the node info. Skip if tile is null (can happen
   // with regional data sets) or if no access at the node.
-  const GraphTile* tile = graphreader.GetGraphTile(node);
+  graph_tile_ptr tile = graphreader.GetGraphTile(node);
   if (tile == nullptr) {
     return false;
   }
   const NodeInfo* nodeinfo = tile->node(node);
-  if (!costing_->Allowed(nodeinfo)) {
-    return false;
-  }
+
+  // Keep track of superseded edges
+  uint32_t shortcuts = 0;
 
   // Update the time information even if time is invariant to account for timezones
   auto seconds_offset = invariant ? 0.f : pred.cost().secs;
@@ -328,11 +347,21 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
                          ? time_info
                          : time_info.reverse(seconds_offset, static_cast<int>(nodeinfo->timezone()));
 
-  uint32_t shortcuts = 0;
-  EdgeMetadata meta = EdgeMetadata::make(node, nodeinfo, tile, edgestatus_reverse_);
+  // If we encounter a node with an access restriction like a barrier we allow a uturn
+  if (!costing_->Allowed(nodeinfo)) {
+    const DirectedEdge* opp_edge;
+    const GraphId opp_edge_id = graphreader.GetOpposingEdgeId(pred.edgeid(), opp_edge, tile);
+    // Check if edge is null before using it (can happen with regional data sets)
+    return opp_edge &&
+           ExpandReverseInner(graphreader, pred, opp_pred_edge, nodeinfo, pred_idx,
+                              {opp_edge, opp_edge_id, edgestatus_reverse_.GetPtr(opp_edge_id, tile)},
+                              shortcuts, tile, offset_time);
+  }
 
-  bool edge_was_added = false;
+  // We start off allowing uturns, and if we find any edge to expand from we disallow uturns here
+  bool disable_uturn = false;
   bool found_uturn = false;
+  EdgeMetadata meta = EdgeMetadata::make(node, nodeinfo, tile, edgestatus_reverse_);
   EdgeMetadata uturn_meta = {};
 
   // Expand from end node in reverse direction.
@@ -348,9 +377,9 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
       continue;
     }
 
-    edge_was_added = ExpandReverseInner(graphreader, pred, opp_pred_edge, nodeinfo, pred_idx, meta,
-                                        shortcuts, tile, offset_time) ||
-                     edge_was_added;
+    disable_uturn = ExpandReverseInner(graphreader, pred, opp_pred_edge, nodeinfo, pred_idx, meta,
+                                       shortcuts, tile, offset_time) ||
+                    disable_uturn;
   }
 
   // Handle transitions - expand from the end node of each transition
@@ -359,13 +388,13 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
     for (uint32_t i = 0; i < nodeinfo->transition_count(); ++i, ++trans) {
       if (trans->up()) {
         hierarchy_limits_reverse_[node.level()].up_transition_count++;
-        edge_was_added = ExpandReverse(graphreader, trans->endnode(), pred, pred_idx, opp_pred_edge,
-                                       true, offset_time, invariant) ||
-                         edge_was_added;
+        disable_uturn = ExpandReverse(graphreader, trans->endnode(), pred, pred_idx, opp_pred_edge,
+                                      true, offset_time, invariant) ||
+                        disable_uturn;
       } else if (!hierarchy_limits_reverse_[trans->endnode().level()].StopExpanding()) {
-        edge_was_added = ExpandReverse(graphreader, trans->endnode(), pred, pred_idx, opp_pred_edge,
-                                       true, offset_time, invariant) ||
-                         edge_was_added;
+        disable_uturn = ExpandReverse(graphreader, trans->endnode(), pred, pred_idx, opp_pred_edge,
+                                      true, offset_time, invariant) ||
+                        disable_uturn;
       }
     }
   }
@@ -373,7 +402,7 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
   if (!from_transition) {
     // Now, after having looked at all the edges, including edges on other levels,
     // we can say if this is a deadend or not, and if so, evaluate the uturn-edge (if it exists)
-    if (!edge_was_added && found_uturn) {
+    if (!disable_uturn && found_uturn) {
       // If we found no suitable edge to add, it means we're at a deadend
       // so lets go back and re-evaluate a potential u-turn
 
@@ -386,16 +415,16 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
 
       // TODO Is there a shortcut that supersedes our u-turn?
       if (was_uturn_shortcut_added) {
-        edge_was_added = true;
+        disable_uturn = true;
       } else {
         // We didn't add any shortcut of the uturn, therefore evaluate the regular uturn instead
-        edge_was_added = ExpandReverseInner(graphreader, pred, opp_pred_edge, nodeinfo, pred_idx,
-                                            uturn_meta, shortcuts, tile, offset_time) ||
-                         edge_was_added;
+        disable_uturn = ExpandReverseInner(graphreader, pred, opp_pred_edge, nodeinfo, pred_idx,
+                                           uturn_meta, shortcuts, tile, offset_time) ||
+                        disable_uturn;
       }
     }
   }
-  return edge_was_added;
+  return disable_uturn;
 }
 // Runs in the inner loop of `ExpandReverse`, essentially evaluating if
 // the edge described in `meta` should be placed on the stack
@@ -403,7 +432,12 @@ bool BidirectionalAStar::ExpandReverse(GraphReader& graphreader,
 //
 // TODO: Merge this with ExpandForwardInner
 //
-// Returns true if any edge _could_ have been expanded after restrictions etc.
+// Returns false if uturns are allowed.
+// Returns true if we will expand or have expanded from this edge. In that case we disallow uturns.
+// Some edges we won't expand from, but we will still put them on the adjacency list in order to
+// connect the forward and reverse paths. In that case we return false to allow uturns only if this
+// edge is a not-thru edge that will be pruned.
+//
 inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
                                                    const BDEdgeLabel& pred,
                                                    const DirectedEdge* opp_pred_edge,
@@ -411,7 +445,7 @@ inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
                                                    const uint32_t pred_idx,
                                                    const EdgeMetadata& meta,
                                                    uint32_t& shortcuts,
-                                                   const GraphTile* tile,
+                                                   const graph_tile_ptr& tile,
                                                    const TimeInfo& time_info) {
   // Skip shortcut edges until we have stopped expanding on the next level. Use regular
   // edges while still expanding on the next level since we can still transition down to
@@ -438,7 +472,7 @@ inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
   }
 
   // Get end node tile, opposing edge Id, and opposing directed edge.
-  const GraphTile* t2 =
+  graph_tile_ptr t2 =
       meta.edge->leaves_tile() ? graphreader.GetGraphTile(meta.edge->endnode()) : tile;
   if (t2 == nullptr) {
     return false;
@@ -461,9 +495,9 @@ inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
 
   // Get cost. Use opposing edge for EdgeCost. Separate the transition seconds so we
   // can properly recover elapsed time on the reverse path.
-  Cost transition_cost =
+  const Cost transition_cost =
       costing_->TransitionCostReverse(meta.edge->localedgeidx(), nodeinfo, opp_edge, opp_pred_edge);
-  Cost newcost =
+  const Cost newcost =
       pred.cost() + costing_->EdgeCost(opp_edge, t2, time_info.second_of_week) + transition_cost;
 
   // Check if edge is temporarily labeled and this path has less cost. If
@@ -476,7 +510,8 @@ inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
       adjacencylist_reverse_->decrease(meta.edge_status->index(), newsortcost);
       lab.Update(pred_idx, newcost, newsortcost, transition_cost, restriction_idx);
     }
-    return true; // Returning true since this means we approved the edge
+    // Returning true since this means we approved the edge
+    return true;
   }
 
   // Find the sort cost (with A* heuristic) using the lat,lng at the
@@ -499,7 +534,10 @@ inline bool BidirectionalAStar::ExpandReverseInner(GraphReader& graphreader,
   if (expansion_callback_) {
     expansion_callback_(graphreader, "bidirectional_astar", opp_edge_id, "r", false);
   }
-  return true;
+
+  // we've just added this edge to the queue, but we won't expand from it if it's a not-thru edge that
+  // will be pruned. In that case we want to allow uturns.
+  return !(pred.not_thru_pruning() && meta.edge->not_thru());
 }
 
 // Calculate best path using bi-directional A*. No hierarchies or time
@@ -815,13 +853,13 @@ void BidirectionalAStar::SetOrigin(GraphReader& graphreader,
     }
 
     // Get the directed edge
-    const GraphTile* tile = graphreader.GetGraphTile(edgeid);
+    graph_tile_ptr tile = graphreader.GetGraphTile(edgeid);
     const DirectedEdge* directededge = tile->directededge(edgeid);
 
     // Get the tile at the end node. Skip if tile not found as we won't be
     // able to expand from this origin edge.
-    const GraphTile* endtile = graphreader.GetGraphTile(directededge->endnode());
-    if (endtile == nullptr) {
+    graph_tile_ptr endtile = graphreader.GetGraphTile(directededge->endnode());
+    if (!endtile) {
       continue;
     }
 
@@ -895,7 +933,7 @@ void BidirectionalAStar::SetDestination(GraphReader& graphreader,
       continue;
     }
     // Get the directed edge
-    const GraphTile* tile = graphreader.GetGraphTile(edgeid);
+    graph_tile_ptr tile = graphreader.GetGraphTile(edgeid);
     const DirectedEdge* directededge = tile->directededge(edgeid);
 
     // Get the opposing directed edge, continue if we cannot get it
@@ -972,7 +1010,7 @@ std::vector<std::vector<PathInfo>> BidirectionalAStar::FormPath(GraphReader& gra
 #ifdef LOGGING_LEVEL_TRACE
   LOG_TRACE("CONNECTIONS FOUND " + std::to_string(best_connections_.size()));
   for (const auto& b : best_connections_) {
-    const auto* tile = graphreader.GetGraphTile(b.edgeid);
+    auto tile = graphreader.GetGraphTile(b.edgeid);
     auto nodes = graphreader.GetDirectedEdgeNodes(b.edgeid, tile);
     auto sll = graphreader.GetGraphTile(nodes.first)
                    ->node(nodes.first)
@@ -1133,7 +1171,7 @@ bool IsBridgingEdgeRestricted(GraphReader& graphreader,
                               std::vector<sif::BDEdgeLabel>& edge_labels_rev,
                               const BDEdgeLabel& fwd_pred,
                               const BDEdgeLabel& rev_pred,
-                              std::shared_ptr<sif::DynamicCost>& costing) {
+                              const std::shared_ptr<sif::DynamicCost>& costing) {
 
   const uint8_t M = 10;                 // TODO Look at data to figure this out
   const uint8_t PATCH_PATH_SIZE = M * 2 // Expand M in both directions
@@ -1165,7 +1203,7 @@ bool IsBridgingEdgeRestricted(GraphReader& graphreader,
   // at the end before pushing the right-hand edges (opposite direction) onto the back
   std::reverse(patch_path.begin(), patch_path.end());
 
-  const GraphTile* tile = nullptr; // Used for later hinting
+  graph_tile_ptr tile = nullptr; // Used for later hinting
 
   auto next_rev_pred = rev_pred;
   // Now push_back the edges from opposite direction onto our patch_path

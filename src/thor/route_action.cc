@@ -5,6 +5,7 @@
 #include "baldr/rapidjson_utils.h"
 #include "midgard/constants.h"
 #include "midgard/logging.h"
+#include "midgard/util.h"
 #include "sif/autocost.h"
 #include "sif/bicyclecost.h"
 #include "sif/pedestriancost.h"
@@ -103,7 +104,7 @@ void remove_edges(const GraphId& edge_id, valhalla::Location& loc, GraphReader& 
   }
 
   // if its at the begin node lets center our sights on that
-  const GraphTile* tile = reader.GetGraphTile(edge_id);
+ graph_tile_ptr tile = reader.GetGraphTile(edge_id);
   const auto* edge = tile->directededge(edge_id);
   const auto* node = reader.GetEndNode(edge, tile);
   if (pe->begin_node()) {
@@ -129,6 +130,9 @@ namespace valhalla {
 namespace thor {
 
 std::string thor_worker_t::expansion(Api& request) {
+  // time this whole method and save that statistic
+  measure_scope_time(request, "thor_worker_t::expansion");
+
   // default the expansion geojson so its easy to add to as we go
   rapidjson::Document dom;
   dom.SetObject();
@@ -144,7 +148,7 @@ std::string thor_worker_t::expansion(Api& request) {
   auto track_expansion = [&dom](baldr::GraphReader& reader, const char* algorithm,
                                 baldr::GraphId edgeid, const char* status, bool full_shape = false) {
     // full shape might be overkill but meh, its trace
-    const auto* tile = reader.GetGraphTile(edgeid);
+    auto tile = reader.GetGraphTile(edgeid);
     const auto* edge = tile->directededge(edgeid);
     auto shape = tile->edgeinfo(edge->edgeinfo_offset()).shape();
     if (!edge->forward())
@@ -181,7 +185,6 @@ std::string thor_worker_t::expansion(Api& request) {
            &multi_modal_astar,
            &timedep_forward,
            &timedep_reverse,
-           &astar,
            &bidir_astar,
            &bss_astar,
        }) {
@@ -196,7 +199,6 @@ std::string thor_worker_t::expansion(Api& request) {
            &multi_modal_astar,
            &timedep_forward,
            &timedep_reverse,
-           &astar,
            &bidir_astar,
            &bss_astar,
        }) {
@@ -208,6 +210,9 @@ std::string thor_worker_t::expansion(Api& request) {
 }
 
 void thor_worker_t::route(Api& request) {
+  // time this whole method and save that statistic
+  auto _ = measure_scope_time(request, "thor_worker_t::route");
+
   parse_locations(request);
   parse_filter_attributes(request);
   auto costing = parse_costing(request);
@@ -238,7 +243,6 @@ thor::PathAlgorithm* thor_worker_t::get_path_algorithm(const std::string& routet
            &multi_modal_astar,
            &timedep_forward,
            &timedep_reverse,
-           &astar,
            &bidir_astar,
            &bss_astar,
        }) {
@@ -283,15 +287,7 @@ thor::PathAlgorithm* thor_worker_t::get_path_algorithm(const std::string& routet
     for (auto& edge2 : destination.path_edges()) {
       if (edge1.graph_id() == edge2.graph_id() ||
           reader->AreEdgesConnected(GraphId(edge1.graph_id()), GraphId(edge2.graph_id()))) {
-
-        // We need time dependence so we use timedep_foward when its trivial (should be short so not a
-        // real issue that its not invariant)
-        if (options.has_date_time_type() && options.date_time_type() == Options::invariant) {
-          return &timedep_forward;
-        }
-
-        // Otherwise we can use regular astar
-        return &astar;
+        return &timedep_forward;
       }
     }
   }
@@ -336,9 +332,9 @@ std::vector<std::vector<thor::PathInfo>> thor_worker_t::get_path(PathAlgorithm* 
 
     path_algorithm->Clear();
     cost->set_pass(1);
-    bool using_astar = (path_algorithm == &astar);
-    float relax_factor = using_astar ? 16.0f : 8.0f;
-    float expansion_within_factor = using_astar ? 4.0f : 2.0f;
+    // since bidir does about half the expansion we can do half the relaxation here
+    float relax_factor = path_algorithm == &bidir_astar ? 8.f : 16.f;
+    float expansion_within_factor = path_algorithm == &bidir_astar ? 2.f : 4.f;
     cost->RelaxHierarchyLimits(relax_factor, expansion_within_factor);
     cost->set_allow_destination_only(true);
 
@@ -374,7 +370,7 @@ void thor_worker_t::path_arrive_by(Api& api, const std::string& costing) {
         get_path_algorithm(costing, *origin, *destination, api.options());
     path_algorithm->Clear();
     algorithms.push_back(path_algorithm->name());
-    valhalla::midgard::logging::Log(path_algorithm->name(), " [ANALYTICS] algorithm::");
+    LOG_INFO(std::string("algorithm::") + path_algorithm->name());
 
     // TODO: delete this and send all cases to the function above
     // If we are continuing through a location we need to make sure we
@@ -404,9 +400,9 @@ void thor_worker_t::path_arrive_by(Api& api, const std::string& costing) {
 
       // Merge through legs by updating the time and splicing the lists
       if (!temp_path.empty()) {
-        auto offset = path.back().elapsed_cost.secs;
+        auto offset = path.back().elapsed_cost;
         std::for_each(temp_path.begin(), temp_path.end(),
-                      [offset](PathInfo& i) { i.elapsed_cost.secs += offset; });
+                      [offset](PathInfo& i) { i.elapsed_cost += offset; });
         // Connects via the same edge so we only need it once
         if (path.back().edgeid == temp_path.front().edgeid) {
           path.pop_back();
@@ -478,7 +474,7 @@ void thor_worker_t::path_depart_at(Api& api, const std::string& costing) {
         get_path_algorithm(costing, *origin, *destination, api.options());
     path_algorithm->Clear();
     algorithms.push_back(path_algorithm->name());
-    valhalla::midgard::logging::Log(path_algorithm->name(), " [ANALYTICS] algorithm::");
+    LOG_INFO(std::string("algorithm::") + path_algorithm->name());
 
     // TODO: delete this and send all cases to the function above
     // If we are continuing through a location we need to make sure we
@@ -507,9 +503,9 @@ void thor_worker_t::path_depart_at(Api& api, const std::string& costing) {
 
       // Merge through legs by updating the time and splicing the lists
       if (!path.empty()) {
-        auto offset = path.back().elapsed_cost.secs;
+        auto offset = path.back().elapsed_cost;
         std::for_each(temp_path.begin(), temp_path.end(),
-                      [offset](PathInfo& i) { i.elapsed_cost.secs += offset; });
+                      [offset](PathInfo& i) { i.elapsed_cost += offset; });
         // Connects via the same edge so we only need it once
         if (path.back().edgeid == temp_path.front().edgeid) {
           path.pop_back();
@@ -571,7 +567,7 @@ std::string thor_worker_t::offset_date(GraphReader& reader,
                                        float offset,
                                        const GraphId& out_edge) {
   // get the timezone of the input location
-  const GraphTile* tile = nullptr;
+  graph_tile_ptr tile = nullptr;
   auto in_nodes = reader.GetDirectedEdgeNodes(in_edge, tile);
   uint32_t in_tz = 0;
   if (const auto* node = reader.nodeinfo(in_nodes.first, tile))
