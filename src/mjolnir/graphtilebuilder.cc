@@ -208,7 +208,8 @@ GraphTileBuilder::GraphTileBuilder(const std::string& tile_dir,
     edge_elevation_sample_sizes_.reserve(edge_count);
     edge_elevation_samples_.reserve(edge_count);
 
-    const auto elevation_size_ptr = reinterpret_cast<uint16_t*>(graphtile_->data() +
+
+    const auto elevation_size_ptr = reinterpret_cast<uint16_t*>(memory_->data +
                                                                 header_->elevation_samples_offset());
     auto total_data_length = size_t{0};
     for (auto i = 0; i < edge_count; ++i) {
