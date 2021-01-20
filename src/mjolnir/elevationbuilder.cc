@@ -2,7 +2,6 @@
 
 #include <boost/format.hpp>
 #include <future>
-#include <set>
 #include <thread>
 #include <utility>
 
@@ -13,7 +12,6 @@
 #include "midgard/encoded.h"
 #include "midgard/logging.h"
 #include "midgard/pointll.h"
-#include "midgard/polyline2.h"
 #include "midgard/util.h"
 #include "skadi/sample.h"
 #include "skadi/util.h"
@@ -46,6 +44,7 @@ void add_elevation(const boost::property_tree::ptree& pt,
                    std::deque<GraphId>& tilequeue,
                    std::mutex& lock,
                    const std::unique_ptr<const valhalla::skadi::sample>& sample,
+                   bool embed_elevation,
                    std::promise<uint32_t>& /*result*/) {
   // Local Graphreader
   GraphReader graphreader(pt.get_child("mjolnir"));
@@ -154,7 +153,9 @@ void add_elevation(const boost::property_tree::ptree& pt,
       directededge.set_max_up_slope(max_up_slope);
       directededge.set_max_down_slope(max_down_slope);
 
-      add_edge_elevation(i, tilebuilder, sample.get());
+      if (embed_elevation) {
+          add_edge_elevation(i, tilebuilder, sample.get());
+      }
     }
 
     // Update the tile
@@ -195,6 +196,8 @@ void ElevationBuilder::Build(const boost::property_tree::ptree& pt) {
 
   // Crack open some elevation data if its there. Return if it is not.
   boost::optional<std::string> elevation = pt.get_optional<std::string>("additional_data.elevation");
+  boost::optional<bool> embed_elevation = pt.get_optional<bool>("additional_data.embed_elevation");
+
   std::unique_ptr<const skadi::sample> sample;
   if (elevation && filesystem::exists(*elevation)) {
     sample.reset(new skadi::sample(*elevation));
@@ -232,7 +235,7 @@ void ElevationBuilder::Build(const boost::property_tree::ptree& pt) {
   for (auto& thread : threads) {
     results.emplace_back();
     thread.reset(new std::thread(add_elevation, std::cref(pt), std::ref(tilequeue), std::ref(lock),
-                                 std::cref(sample), std::ref(results.back())));
+                                 std::cref(sample), embed_elevation.value_or(false), std::ref(results.back())));
   }
 
   // Wait for threads to finish

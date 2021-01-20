@@ -56,7 +56,8 @@ config = {
     }
   },
   'additional_data': {
-    'elevation': '/data/valhalla/elevation/'
+    'elevation': '/data/valhalla/elevation/',
+    'embed_elevation': False
   },
   'loki': {
     'actions':['locate','route','height','sources_to_targets','optimized_route','isochrone','trace_route','trace_attributes','transit_available'],
@@ -308,7 +309,8 @@ help_text = {
     }
   },
   'additional_data': {
-    'elevation': 'Location of srtmgl1 elevation tiles for using in valhalla_build_tiles'
+    'elevation': 'Location of srtmgl1 elevation tiles for using in valhalla_build_tiles',
+    'embed_elevation': "Whether or not embed elevation data corresponding with edge shapes"
   },
   'loki': {
     'actions': 'Comma separated list of allowable actions for the service, one or more of: locate, route, height, optimized_route, isochrone, trace_route, trace_attributes, transit_available',
