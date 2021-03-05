@@ -111,7 +111,7 @@ public:
                        const baldr::GraphId& edgeid,
                        const uint64_t current_time,
                        const uint32_t tz_index,
-                       int& restriction_idx) const override;
+                       uint8_t& restriction_idx) const override;
 
   /**
    * Checks if access is allowed for an edge on the reverse path
@@ -137,7 +137,7 @@ public:
                               const baldr::GraphId& opp_edgeid,
                               const uint64_t current_time,
                               const uint32_t tz_index,
-                              int& restriction_idx) const override;
+                              uint8_t& restriction_idx) const override;
 
   /**
    * Checks if access is allowed for the provided node. Node access can
@@ -167,8 +167,10 @@ public:
    * @param seconds
    * @return
    */
-  virtual Cost
-  EdgeCost(const baldr::DirectedEdge*, const graph_tile_ptr&, const uint32_t) const override {
+  virtual Cost EdgeCost(const baldr::DirectedEdge*,
+                        const graph_tile_ptr&,
+                        const uint32_t,
+                        uint8_t&) const override {
     throw std::runtime_error("TransitCost::EdgeCost only supports transit edges");
   }
 
@@ -520,7 +522,7 @@ bool TransitCost::Allowed(const baldr::DirectedEdge* edge,
                           const baldr::GraphId&,
                           const uint64_t,
                           const uint32_t,
-                          int&) const {
+                          uint8_t&) const {
   // TODO - obtain and check the access restrictions.
 
   if (exclude_stops_.size()) {
@@ -551,7 +553,7 @@ bool TransitCost::AllowedReverse(const baldr::DirectedEdge*,
                                  const baldr::GraphId&,
                                  const uint64_t,
                                  const uint32_t,
-                                 int&) const {
+                                 uint8_t&) const {
   // This method should not be called since time based routes do not use
   // bidirectional A*
   return false;

@@ -644,6 +644,10 @@ EdgeInfo GraphTile::edgeinfo(const size_t offset) const {
   return EdgeInfo(edgeinfo_ + offset, textlist_, textlist_size_, nullptr, 0);
 }
 
+EdgeInfo GraphTile::edgeinfo(const DirectedEdge* edge) const {
+  return edgeinfo(edge->edgeinfo_offset());
+}
+
 EdgeInfo GraphTile::GetEdgeInfoFromIndex(size_t index) const {
   const auto offset = directededges_[index].edgeinfo_offset();
   if (edge_elevation_sample_sizes_ == nullptr) {

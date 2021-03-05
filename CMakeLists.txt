@@ -7,13 +7,14 @@
 # This is secondary build configuration provided for convenient development
 # on Windows and using CMake-enabled IDEs.
 #
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 project(valhalla LANGUAGES CXX C)
 
 include(FindPkgConfig)
 include(GNUInstallDirs)
 
 set(VALHALLA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(VALHALLA_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR})
 list(INSERT CMAKE_MODULE_PATH 0 ${VALHALLA_SOURCE_DIR}/cmake)
 
 set(CMAKE_CXX_STANDARD 14 CACHE STRING "C++ language version to use (default is 14)")
@@ -238,11 +239,17 @@ add_subdirectory(src)
 
 ## Python bindings
 if(ENABLE_PYTHON_BINDINGS)
-  #TODO: need to make sure they actually have python
-  add_subdirectory(src/bindings/python)
-  install(FILES COPYING CHANGELOG.md
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/python-valhalla"
-    COMPONENT python)
+  # favors Py3, falls back to Py2
+  find_package(Python COMPONENTS Development Interpreter)
+  if (Python_FOUND)
+    add_subdirectory(src/bindings/python)
+    install(FILES COPYING CHANGELOG.md
+      DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/python-valhalla"
+      COMPONENT python)
+  else()
+    set(ENABLE_PYTHON_BINDINGS OFF)
+    message(WARNING "Skipping Python bindings... Install a development Python version including headers to compile the bindings.")
+  endif()
 endif()
 
 ## Executable targets

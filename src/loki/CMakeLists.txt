@@ -9,6 +9,7 @@ set(sources
   route_action.cc
   matrix_action.cc
   isochrone_action.cc
+  status_action.cc
   trace_route_action.cc
   transit_available_action.cc
   node_search.cc)
@@ -22,7 +23,7 @@ if (UNIX AND NOT APPLE)
     locate_action.cc
     height_action.cc
   PROPERTIES COMPILE_FLAGS "-Wall -Werror")
-endif (UNIX)
+endif ()
 
 valhalla_module(NAME loki
   SOURCES ${sources}

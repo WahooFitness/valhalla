@@ -5,6 +5,7 @@ set(sources
   astar_bss.cc
   attributes_controller.cc
   bidirectional_astar.cc
+  centroid.cc
   costmatrix.cc
   dijkstras.cc
   isochrone_action.cc
@@ -16,9 +17,11 @@ set(sources
   optimizer.cc
   route_action.cc
   route_matcher.cc
+  status_action.cc
   timedep_forward.cc
   timedep_reverse.cc
   timedistancematrix.cc
+  timedistancebssmatrix.cc
   trace_attributes_action.cc
   trace_route_action.cc
   triplegbuilder.cc

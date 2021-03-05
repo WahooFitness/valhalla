@@ -150,7 +150,7 @@ std::string thor_worker_t::expansion(Api& request) {
     // full shape might be overkill but meh, its trace
     auto tile = reader.GetGraphTile(edgeid);
     const auto* edge = tile->directededge(edgeid);
-    auto shape = tile->edgeinfo(edge->edgeinfo_offset()).shape();
+    auto shape = tile->edgeinfo(edge).shape();
     if (!edge->forward())
       std::reverse(shape.begin(), shape.end());
     if (!full_shape && shape.size() > 2)
@@ -211,6 +211,38 @@ std::string thor_worker_t::expansion(Api& request) {
 
   // serialize it
   return rapidjson::to_string(dom, 5);
+}
+
+void thor_worker_t::centroid(Api& request) {
+  parse_locations(request);
+  parse_filter_attributes(request);
+  auto costing = parse_costing(request);
+  auto& options = *request.mutable_options();
+  auto& locations = *options.mutable_locations();
+  valhalla::Location destination;
+
+  // get all the routes
+  auto paths =
+      centroid_gen.Expand(ExpansionType::forward, request, *reader, mode_costing, mode, destination);
+
+  // serialize path information of each route into protobuf route objects
+  auto origin = locations.begin();
+  for (const auto& path : paths) {
+    // the centroid could be either direction of the edge so here we set which it was by id
+    auto dest = destination;
+    dest.mutable_path_edges(0)->set_graph_id(path.back().edgeid);
+
+    // actually build the route object
+    auto* route = request.mutable_trip()->mutable_routes()->Add();
+    auto& leg = *route->mutable_legs()->Add();
+    thor::TripLegBuilder::Build(options, controller, *reader, mode_costing, path.begin(), path.end(),
+                                *origin, dest, {}, leg, {"centroid"}, interrupt, nullptr);
+
+    // TODO: set the time at the destination if time dependent
+
+    // next route
+    ++origin;
+  }
 }
 
 void thor_worker_t::route(Api& request) {

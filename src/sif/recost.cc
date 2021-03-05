@@ -91,7 +91,7 @@ void recost_forward(baldr::GraphReader& reader,
     // TODO: if this edge begins a restriction, we need to start popping off edges into queue
     // so that we can find if we reach the end of the restriction. then we need to replay the
     // queued edges as normal
-    int time_restrictions_TODO = -1;
+    uint8_t time_restrictions_TODO = -1;
     // if its not time dependent set to 0 for Allowed method below
     const uint64_t localtime = offset_time.valid ? offset_time.local_time : 0;
     // we should call 'Allowed' method even if 'ignore_access' flag is true in order to
@@ -120,12 +120,15 @@ void recost_forward(baldr::GraphReader& reader,
     // the cost for traversing this intersection
     Cost transition_cost = node ? costing.TransitionCost(edge, node, label) : Cost{};
     // update the cost to the end of this edge
-    cost += transition_cost + costing.EdgeCost(edge, tile, offset_time.second_of_week) * edge_pct;
+    uint8_t flow_sources;
+    cost += transition_cost +
+            costing.EdgeCost(edge, tile, offset_time.second_of_week, flow_sources) * edge_pct;
     // update the length to the end of this edge
     length += edge->length() * edge_pct;
     // construct the label
     label = EdgeLabel(predecessor++, edge_id, edge, cost, cost.cost, 0, costing.travel_mode(), length,
-                      transition_cost, time_restrictions_TODO);
+                      transition_cost, time_restrictions_TODO, !ignore_access,
+                      static_cast<bool>(flow_sources & baldr::kDefaultFlowMask));
     // hand back the label
     label_cb(label);
     // next edge

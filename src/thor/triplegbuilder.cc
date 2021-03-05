@@ -125,6 +125,17 @@ void UpdateIncident(const std::shared_ptr<const valhalla::IncidentsTile>& incide
   }
 }
 
+valhalla::TripLeg_Closure* fetch_last_closure_annotation(TripLeg& leg) {
+  return leg.closures_size() ? leg.mutable_closures(leg.closures_size() - 1) : nullptr;
+}
+
+valhalla::TripLeg_Closure* fetch_or_create_closure_annotation(TripLeg& leg) {
+  valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(leg);
+  // If last closure annotation has its end index populated, create a new
+  // closure annotation
+  return (!closure || closure->has_end_shape_index()) ? leg.add_closures() : closure;
+}
+
 /**
  * Chops up the shape for an edge so that we have shape points where speeds change along the edge
  * and where incidents occur along the edge. Also sets the various per shape point attributes
@@ -172,6 +183,7 @@ void SetShapeAttributes(const AttributesController& controller,
     double speed; // meters per second
     uint8_t congestion;
     std::vector<const valhalla::IncidentsTile::Location*> incidents;
+    bool closed;
   };
 
   // A list of percent along the edge, corresponding speed (meters per second), incident id
@@ -187,15 +199,20 @@ void SetShapeAttributes(const AttributesController& controller,
       cuts.emplace_back(cut_t{traffic_speed.breakpoint1 / 255.0,
                               speed,
                               static_cast<std::uint8_t>(traffic_speed.congestion1),
-                              {}});
+                              {},
+                              traffic_speed.closed(0)});
       if (traffic_speed.breakpoint2 > 0) {
         cuts.emplace_back(cut_t{traffic_speed.breakpoint2 / 255.0,
                                 speed,
                                 static_cast<std::uint8_t>(traffic_speed.congestion2),
-                                {}});
+                                {},
+                                traffic_speed.closed(1)});
         if (traffic_speed.speed3 != UNKNOWN_TRAFFIC_SPEED_RAW) {
-          cuts.emplace_back(
-              cut_t{1, speed, static_cast<std::uint8_t>(traffic_speed.congestion3), {}});
+          cuts.emplace_back(cut_t{1,
+                                  speed,
+                                  static_cast<std::uint8_t>(traffic_speed.congestion3),
+                                  {},
+                                  traffic_speed.closed(2)});
         }
       }
     }
@@ -203,7 +220,7 @@ void SetShapeAttributes(const AttributesController& controller,
 
   // Cap the end so that we always have something to use
   if (cuts.empty() || cuts.back().percent_along < tgt_pct) {
-    cuts.emplace_back(cut_t{tgt_pct, speed, UNKNOWN_CONGESTION_VAL, {}});
+    cuts.emplace_back(cut_t{tgt_pct, speed, UNKNOWN_CONGESTION_VAL, {}, false});
   }
 
   // sort the start and ends of the incidents along this edge
@@ -241,13 +258,14 @@ void SetShapeAttributes(const AttributesController& controller,
         cuts.insert(itr, cut_t{offset,
                                itr == cuts.end() ? speed : itr->speed,
                                itr == cuts.end() ? UNKNOWN_CONGESTION_VAL : itr->congestion,
-                               {&incident}});
+                               {&incident},
+                               itr == cuts.end() ? false : itr->closed});
       }
     }
   }
 
   // Find the first cut to the right of where we start on this edge
-  auto edgeinfo = tile->edgeinfo(edge->edgeinfo_offset());
+  auto edgeinfo = tile->edgeinfo(edge);
   double distance_total_pct = src_pct;
   auto cut_itr = std::find_if(cuts.cbegin(), cuts.cend(),
                               [distance_total_pct](const decltype(cuts)::value_type& s) {
@@ -288,6 +306,25 @@ void SetShapeAttributes(const AttributesController& controller,
       next_total = cut_itr->percent_along;
       distance *= coef;
       shift = 1;
+    }
+    if (controller.attributes.at(kShapeAttributesClosure)) {
+      // Process closure annotations
+      if (cut_itr->closed) {
+        // Found a closure. Fetch a new annotation, or the last closure
+        // annotation if it does not have an end index set (meaning the shape
+        // is still within an existing closure)
+        ::valhalla::TripLeg_Closure* closure = fetch_or_create_closure_annotation(leg);
+        if (!closure->has_begin_shape_index()) {
+          closure->set_begin_shape_index(i - 1);
+        }
+      } else {
+        // Not a closure, check if we need to set the end of an existing
+        // closure annotation or not
+        ::valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(leg);
+        if (closure && !closure->has_end_shape_index()) {
+          closure->set_end_shape_index(i - 1);
+        }
+      }
     }
     distance_total_pct = next_total;
     double time = distance / cut_itr->speed; // seconds
@@ -451,7 +488,7 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
                           const uint32_t start_node_idx,
                           const bool has_junction_name,
                           const graph_tile_ptr& start_tile,
-                          const int restrictions_idx) {
+                          const uint8_t restrictions_idx) {
 
   // Index of the directed edge within the tile
   uint32_t idx = edge.id();
@@ -459,7 +496,7 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
   TripLeg_Edge* trip_edge = trip_node->mutable_edge();
 
   // Get the edgeinfo
-  auto edgeinfo = graphtile->edgeinfo(directededge->edgeinfo_offset());
+  auto edgeinfo = graphtile->edgeinfo(directededge);
 
   // Add names to edge if requested
   if (controller.attributes.at(kEdgeNames)) {
@@ -614,8 +651,9 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
     // know whether or not the costing actually cares about the speed of the edge. Perhaps a
     // refactor of costing to have a GetSpeed function which EdgeCost calls internally but which we
     // can also call externally
+    uint8_t flow_sources;
     auto speed = directededge->length() /
-                 costing->EdgeCost(directededge, graphtile, second_of_week).secs * 3.6;
+                 costing->EdgeCost(directededge, graphtile, second_of_week, flow_sources).secs * 3.6;
     trip_edge->set_speed(speed);
   }
 
@@ -661,14 +699,14 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
     }
   }
 
-  if (directededge->access_restriction() && restrictions_idx >= 0) {
+  if (directededge->access_restriction() && restrictions_idx != kInvalidRestriction) {
     const std::vector<baldr::AccessRestriction>& restrictions =
         graphtile->GetAccessRestrictions(edge.id(), costing->access_mode());
     trip_edge->mutable_restriction()->set_type(
         static_cast<uint32_t>(restrictions[restrictions_idx].type()));
   }
 
-  trip_edge->set_has_time_restrictions(restrictions_idx >= 0);
+  trip_edge->set_has_time_restrictions(restrictions_idx != kInvalidRestriction);
 
   // Set the trip path use based on directed edge use if requested
   if (controller.attributes.at(kEdgeUse)) {
@@ -1155,7 +1193,6 @@ void TripLegBuilder::Build(
   auto* tp_dest = trip_path.mutable_location(trip_path.location_size() - 1);
 
   // Keep track of the time
-  auto date_time = origin.has_date_time() ? origin.date_time() : "";
   baldr::DateTime::tz_sys_info_cache_t tz_cache;
   const auto forward_time_info = baldr::TimeInfo::make(origin, graphreader, &tz_cache);
 
@@ -1336,7 +1373,7 @@ void TripLegBuilder::Build(
     auto index = graphtile->DirectedEdgeIndexFromOffset(directededge->edgeinfo_offset());
     auto edgeinfo = index != std::numeric_limits<size_t>::max()
                         ? graphtile->GetEdgeInfoFromIndex(index)
-                        : graphtile->edgeinfo(directededge->edgeinfo_offset());
+                        : graphtile->edgeinfo(directededge);
 
     auto edge_shape = edgeinfo.shape();
     const auto elevation_shape = edgeinfo.elevation_samples();
@@ -1526,6 +1563,15 @@ void TripLegBuilder::Build(
   if (controller.attributes.at(kNodeTransitionTime)) {
     node->mutable_cost()->mutable_transition_cost()->set_seconds(0);
     node->mutable_cost()->mutable_transition_cost()->set_cost(0);
+  }
+
+  if (controller.attributes.at(kShapeAttributesClosure)) {
+    // Set the end shape index if we're ending on a closure as the last index is
+    // not processed in SetShapeAttributes above
+    valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(trip_path);
+    if (closure && !closure->has_end_shape_index()) {
+      closure->set_end_shape_index(trip_shape.size() - 1);
+    }
   }
 
   // Assign the admins
