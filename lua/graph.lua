@@ -1266,11 +1266,6 @@ function filter_tags_generic(kv)
      return 1
    end
 
-   --toss where access=private and highway=service and service != driveway
-   if (kv["access"] == "private" and kv["highway"] == "service" and (kv["service"] == nil or kv["service"] ~= "driveway")) then
-     return 1
-   end
-
    delete_tags = { 'FIXME', 'note', 'source' }
 
    for i,k in ipairs(delete_tags) do
@@ -1312,6 +1307,8 @@ function filter_tags_generic(kv)
         use = 20
      elseif (kv["highway"] == "footway" and kv["footway"] == "sidewalk") then
         use = 24
+     elseif (kv["highway"] == "footway" and kv["footway"] == "crossing") then
+        use = 32
      elseif kv["highway"] == "footway" then
         use = 25
      elseif kv["highway"] == "steps" then
@@ -1664,7 +1661,8 @@ function nodes_proc (kv, nokeys)
   end
 
   --normalize a few tags that we care about
-  local access = access[kv["access"]] or "true"
+  local initial_access = access[kv["access"]]
+  local access = initial_access or "true"
 
   if (kv["impassable"] == "yes" or (kv["access"] == "private" and (kv["emergency"] == "yes" or kv["service"] == "emergency_access"))) then
     access = "false"
@@ -1915,6 +1913,15 @@ function nodes_proc (kv, nokeys)
 
   --store a mask denoting access
   kv["access_mask"] = bit.bor(auto, emergency, truck, bike, foot, wheelchair, bus, hov, moped, motorcycle, taxi)
+
+  --if no information about access is given.
+  if initial_access == nil and auto_tag == nil and truck_tag == nil and bus_tag == nil and taxi_tag == nil and
+   foot_tag == nil and wheelchair_tag == nil and bike_tag == nil and moped_tag == nil and
+   motorcycle_tag == nil and emergency_tag == nil and hov_tag == nil then
+    kv["tagged_access"] = 0
+  else
+    kv["tagged_access"] = 1
+  end
 
   return 0, kv
 end

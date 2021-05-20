@@ -94,8 +94,9 @@ void TimeDistanceMatrix::ExpandForward(GraphReader& graphreader,
     // directed edge), if no access is allowed to this edge (based on costing
     // method), or if a complex restriction prevents this path.
     uint8_t restriction_idx = -1;
+    const bool is_dest = dest_edges_.find(edgeid) != dest_edges_.cend();
     if (es->set() == EdgeSet::kPermanent ||
-        !costing_->Allowed(directededge, pred, tile, edgeid, 0, 0, restriction_idx) ||
+        !costing_->Allowed(directededge, is_dest, pred, tile, edgeid, 0, 0, restriction_idx) ||
         costing_->Restricted(directededge, pred, edgelabels_, tile, edgeid, true)) {
       continue;
     }
@@ -126,7 +127,8 @@ void TimeDistanceMatrix::ExpandForward(GraphReader& graphreader,
     edgelabels_.emplace_back(pred_idx, edgeid, directededge, newcost, newcost.cost, 0.0f, mode_,
                              distance, transition_cost, restriction_idx,
                              (pred.closure_pruning() || !costing_->IsClosed(directededge, tile)),
-                             static_cast<bool>(flow_sources & kDefaultFlowMask));
+                             static_cast<bool>(flow_sources & kDefaultFlowMask),
+                             costing_->TurnType(pred.opp_local_idx(), nodeinfo, directededge));
     *es = {EdgeSet::kTemporary, idx};
     adjacencylist_.add(idx);
   }
@@ -266,7 +268,8 @@ void TimeDistanceMatrix::ExpandReverse(GraphReader& graphreader,
     // Get cost. Use the opposing edge for EdgeCost.
     auto transition_cost =
         costing_->TransitionCostReverse(directededge->localedgeidx(), nodeinfo, opp_edge,
-                                        opp_pred_edge, pred.has_measured_speed());
+                                        opp_pred_edge, pred.has_measured_speed(),
+                                        pred.internal_turn());
     uint8_t flow_sources;
     Cost newcost = pred.cost() +
                    costing_->EdgeCost(opp_edge, t2, kConstrainedFlowSecondOfDay, flow_sources) +
@@ -291,7 +294,9 @@ void TimeDistanceMatrix::ExpandReverse(GraphReader& graphreader,
     edgelabels_.emplace_back(pred_idx, edgeid, directededge, newcost, newcost.cost, 0.0f, mode_,
                              distance, transition_cost, restriction_idx,
                              (pred.closure_pruning() || !costing_->IsClosed(directededge, tile)),
-                             static_cast<bool>(flow_sources & kDefaultFlowMask));
+                             static_cast<bool>(flow_sources & kDefaultFlowMask),
+                             costing_->TurnType(directededge->localedgeidx(), nodeinfo, opp_edge,
+                                                opp_pred_edge));
     *es = {EdgeSet::kTemporary, idx};
     adjacencylist_.add(idx);
   }
@@ -465,7 +470,7 @@ void TimeDistanceMatrix::SetOriginOneToMany(GraphReader& graphreader,
     // of the path. Set the origin flag
     EdgeLabel edge_label(kInvalidLabel, edgeid, directededge, cost, cost.cost, 0.0f, mode_, d, {},
                          baldr::kInvalidRestriction, !costing_->IsClosed(directededge, tile),
-                         static_cast<bool>(flow_sources & kDefaultFlowMask));
+                         static_cast<bool>(flow_sources & kDefaultFlowMask), InternalTurn::kNoTurn);
     edge_label.set_origin();
     edgelabels_.push_back(std::move(edge_label));
     adjacencylist_.add(edgelabels_.size() - 1);
@@ -519,7 +524,7 @@ void TimeDistanceMatrix::SetOriginManyToOne(GraphReader& graphreader,
     // TODO - restrictions?
     EdgeLabel edge_label(kInvalidLabel, opp_edge_id, opp_dir_edge, cost, cost.cost, 0.0f, mode_, d,
                          {}, baldr::kInvalidRestriction, !costing_->IsClosed(directededge, tile),
-                         static_cast<bool>(flow_sources & kDefaultFlowMask));
+                         static_cast<bool>(flow_sources & kDefaultFlowMask), InternalTurn::kNoTurn);
     edge_label.set_origin();
     edgelabels_.push_back(std::move(edge_label));
     adjacencylist_.add(edgelabels_.size() - 1);

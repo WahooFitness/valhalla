@@ -281,6 +281,9 @@ public:
         case Use::kBridleway:
           way_.set_use(Use::kBridleway);
           break;
+        case Use::kPedestrianCrossing:
+          way_.set_use(Use::kPedestrianCrossing);
+          break;
         case Use::kLivingStreet:
           way_.set_use(Use::kLivingStreet);
           break;
@@ -852,8 +855,8 @@ public:
     // if this nodes id is less than the waynode we are looking for then we know its a node we can
     // skip because it means there were no ways that we kept that referenced it. also we could run out
     // of waynodes to look for and in that case we are done as well
-    if (osmid < (*(*way_nodes_)[current_way_node_index_]).node.osmid_ ||
-        current_way_node_index_ >= way_nodes_->size()) {
+    if (current_way_node_index_ >= way_nodes_->size() ||
+        osmid < (*(*way_nodes_)[current_way_node_index_]).node.osmid_) {
       return;
     }
 
@@ -944,6 +947,8 @@ public:
         n.set_type(NodeType::kSumpBuster);
       } else if (tag.first == "access_mask") {
         n.set_access(std::stoi(tag.second));
+      } else if (tag.first == "tagged_access") {
+        n.set_tagged_access(std::stoi(tag.second));
       }
 
       /* TODO: payment type.
@@ -1134,9 +1139,10 @@ public:
         AccessType type = AccessType::kTimedDenied;
         if (tmp == "no") {
           type = AccessType::kTimedDenied;
-        } else if (tmp == "yes" || tmp == "private" || tmp == "delivery" || tmp == "designated" ||
-                   tmp == "destination") {
+        } else if (tmp == "yes" || tmp == "private" || tmp == "delivery" || tmp == "designated") {
           type = AccessType::kTimedAllowed;
+        } else if (tmp == "destination") {
+          type = AccessType::kDestinationAllowed;
         }
 
         if (tokens.size() == 2 && tmp.size()) {
@@ -1479,8 +1485,7 @@ public:
     }
 
     // Infer cul-de-sac if a road edge is a loop and is low classification.
-    if (!way_.roundabout() && loop_nodes_.size() != nodes.size() &&
-        (way_.use() == Use::kRoad || way_.use() == Use::kServiceRoad) &&
+    if (!way_.roundabout() && loop_nodes_.size() != nodes.size() && way_.use() == Use::kRoad &&
         way_.road_class() > RoadClass::kTertiary) {
       way_.set_use(Use::kCuldesac);
     }
@@ -1826,13 +1831,15 @@ public:
             // simple restriction, but is a timed restriction
             // change to complex and set date and time info
             if (condition.empty()) {
-              condition = day_start + "-";
-              condition += day_end;
+              if (!day_start.empty() && !day_end.empty()) {
+                condition = day_start + '-' + day_end;
+              }
               // do we have multiple times entered?
               if (!has_multiple_times) {
                 // no we do not...add the hours to the condition
-                condition += " " + hour_start + "-";
-                condition += hour_end;
+                if (!hour_start.empty() && !hour_end.empty()) {
+                  condition += ' ' + hour_start + '-' + hour_end;
+                }
               }
               // yes multiple times
               // 06:00;17:00

@@ -24,6 +24,8 @@
 #include <rapidjson/document.h>
 #include <unordered_map>
 
+using namespace valhalla::midgard;
+
 namespace valhalla {
 namespace sif {
 
@@ -40,8 +42,20 @@ constexpr float kMaxPenalty = 12.0f * midgard::kSecPerHour; // 12 hours
 // since a ferry is sometimes required to complete a route.
 constexpr float kMaxFerryPenalty = 6.0f * midgard::kSecPerHour; // 6 hours
 
+// Default uturn costs
+constexpr float kTCUnfavorablePencilPointUturn = 15.f;
+constexpr float kTCUnfavorableUturn = 600.f;
+
 constexpr midgard::ranged_default_t<uint32_t> kVehicleSpeedRange{10, baldr::kMaxAssumedSpeed,
                                                                  baldr::kMaxSpeedKph};
+
+// Default penalty factor for avoiding closures (increases the cost of an edge as if its being
+// traversed at kMinSpeedKph)
+constexpr float kDefaultClosureFactor = 9.0f;
+// Default range of closure factor to use for closed edges. Min is set to 1.0, which means do not
+// penalize closed edges. The max is set to 10.0 in order to limit how much expansion occurs from the
+// non-closure end
+constexpr ranged_default_t<float> kClosureFactorRange{1.0f, kDefaultClosureFactor, 10.0f};
 
 /**
  * Mask values used in the allowed function by loki::reach to control how conservative
@@ -74,8 +88,12 @@ public:
    * @param  options Request options in a pbf
    * @param  mode Travel mode
    * @param  access_mask Access mask
+   * @param  penalize_uturns Should we penalize uturns?
    */
-  DynamicCost(const CostingOptions& options, const TravelMode mode, uint32_t access_mask);
+  DynamicCost(const CostingOptions& options,
+              const TravelMode mode,
+              uint32_t access_mask,
+              bool penalize_uturns = false);
 
   virtual ~DynamicCost();
 
@@ -144,6 +162,7 @@ public:
    * based on other parameters such as conditional restrictions and
    * conditional access that can depend on time and travel mode.
    * @param  edge           Pointer to a directed edge.
+   * @param  is_dest        Is a directed edge the destination?
    * @param  pred           Predecessor edge information.
    * @param  tile           Current tile.
    * @param  edgeid         GraphId of the directed edge.
@@ -153,6 +172,7 @@ public:
    * @return Returns true if access is allowed, false if not.
    */
   virtual bool Allowed(const baldr::DirectedEdge* edge,
+                       const bool is_dest,
                        const EdgeLabel& pred,
                        const graph_tile_ptr& tile,
                        const baldr::GraphId& edgeid,
@@ -303,13 +323,15 @@ public:
    * @param  opp_pred_edge  Pointer to the opposing directed edge to the
    *                        predecessor. This is the "to" edge.
    * @param  has_measured_speed Do we have any of the measured speed types set?
+   * @param  internal_turn Did we make a uturn on a short internal edge?
    * @return  Returns the cost and time (seconds)
    */
   virtual Cost TransitionCostReverse(const uint32_t idx,
                                      const baldr::NodeInfo* node,
                                      const baldr::DirectedEdge* opp_edge,
                                      const baldr::DirectedEdge* opp_pred_edge,
-                                     const bool has_measured_speed = false) const;
+                                     const bool has_measured_speed = false,
+                                     const InternalTurn internal_turn = InternalTurn::kNoTurn) const;
 
   /**
    * Test if an edge should be restricted due to a complex restriction.
@@ -480,6 +502,7 @@ public:
 
   inline bool EvaluateRestrictions(uint32_t access_mode,
                                    const baldr::DirectedEdge* edge,
+                                   const bool is_dest,
                                    const graph_tile_ptr& tile,
                                    const baldr::GraphId& edgeid,
                                    const uint64_t current_time,
@@ -498,7 +521,8 @@ public:
       // Compare the time to the time-based restrictions
       baldr::AccessType access_type = restriction.type();
       if (access_type == baldr::AccessType::kTimedAllowed ||
-          access_type == baldr::AccessType::kTimedDenied) {
+          access_type == baldr::AccessType::kTimedDenied ||
+          access_type == baldr::AccessType::kDestinationAllowed) {
         // TODO: if(i > baldr::kInvalidRestriction) LOG_ERROR("restriction index overflow");
         restriction_idx = static_cast<uint8_t>(i);
 
@@ -518,6 +542,8 @@ public:
             // We are in range at the time we are allowed at this edge
             if (access_type == baldr::AccessType::kTimedAllowed)
               return true;
+            else if (access_type == baldr::AccessType::kDestinationAllowed)
+              return allow_conditional_destination_ || is_dest;
             else
               return false;
           }
@@ -534,6 +560,82 @@ public:
     // the only time we can route here.  Meaning all other time is restricted.
     // We looped over all the time allowed restrictions and we were never in range.
     return !time_allowed || (current_time == 0);
+  }
+
+  /**
+   * Returns the turn type from the predecessor edge.
+   * Defaults to InternalTurn::kNoTurn. Costing models that wish to penalize
+   * short internal turns in the Transition Cost functions must set penalize_uturns to true in the
+   * DynamicCost constructor
+   * @param  idx   Directed edge local index
+   * @param  node  Node (intersection) where transition occurs.
+   * @param  edge  Directed edge (the to edge)
+   * @param  opp_pred_edge Optional.  Opposing predecessor Directed edge (only used for the reverse
+   * search)
+   * @return  Returns the InternalTurn type
+   */
+  inline InternalTurn TurnType(const uint32_t idx,
+                               const baldr::NodeInfo* node,
+                               const baldr::DirectedEdge* edge,
+                               const baldr::DirectedEdge* opp_pred_edge = nullptr) const {
+    if (!penalize_uturns_ || !edge->internal())
+      return InternalTurn::kNoTurn;
+    baldr::Turn::Type turntype = opp_pred_edge ? opp_pred_edge->turntype(idx) : edge->turntype(idx);
+    if (node->drive_on_right()) {
+      // did we make a left onto a small internal edge?
+      if (edge->length() <= kShortInternalLength &&
+          (turntype == baldr::Turn::Type::kSharpLeft || turntype == baldr::Turn::Type::kLeft))
+        return InternalTurn::kLeftTurn;
+      // did we make a right onto a small internal edge?
+    } else if (edge->length() <= kShortInternalLength &&
+               (turntype == baldr::Turn::Type::kSharpRight || turntype == baldr::Turn::Type::kRight))
+      return InternalTurn::kRightTurn;
+    return InternalTurn::kNoTurn;
+  }
+
+  /**
+   * Adds a penalty to 3 types of uturns.  1) uturn on a short, internal edge 2) uturn at a node
+   * 3) pencil point uturn. Note that motor_scooter and motorcycle costing models do not penalize
+   * uturns on a short, internal edge; hence, the boolean penalize_internal_uturns.
+   * @param  idx          Directed edge local index
+   * @param  node         Node (intersection) where transition occurs.
+   * @param  edge         Directed edge (the to edge)
+   * @param  has_reverse  Did we perform a reverse?
+   * @param  has_left     Did we make a left (left or sharp left)
+   * @param  has_right    Did we make a right (right or sharp right)
+   * @param  penalize_internal_uturns   Do we want to penalize uturns on a short, internal edge
+   * @param  internal_turn              Did we make an turn on a short internal edge.
+   * @param  seconds      Time.
+   */
+  inline void AddUturnPenalty(const uint32_t idx,
+                              const baldr::NodeInfo* node,
+                              const baldr::DirectedEdge* edge,
+                              const bool has_reverse,
+                              const bool has_left,
+                              const bool has_right,
+                              const bool penalize_internal_uturns,
+                              const InternalTurn internal_turn,
+                              float& seconds) const {
+
+    if (node->drive_on_right()) {
+      // Did we make a uturn on a short, internal edge or did we make a uturn at a node.
+      if (has_reverse ||
+          (penalize_internal_uturns && internal_turn == InternalTurn::kLeftTurn && has_left))
+        seconds += kTCUnfavorableUturn;
+      // Did we make a pencil point uturn?
+      else if (edge->turntype(idx) == baldr::Turn::Type::kSharpLeft && edge->edge_to_right(idx) &&
+               !edge->edge_to_left(idx) && edge->named() && edge->name_consistency(idx))
+        seconds *= kTCUnfavorablePencilPointUturn;
+    } else {
+      // Did we make a uturn on a short, internal edge or did we make a uturn at a node.
+      if (has_reverse ||
+          (penalize_internal_uturns && internal_turn == InternalTurn::kRightTurn && has_right))
+        seconds += kTCUnfavorableUturn;
+      // Did we make a pencil point uturn?
+      else if (edge->turntype(idx) == baldr::Turn::Type::kSharpRight && !edge->edge_to_right(idx) &&
+               edge->edge_to_left(idx) && edge->named() && edge->name_consistency(idx))
+        seconds *= kTCUnfavorablePencilPointUturn;
+    }
   }
 
   /**
@@ -582,6 +684,12 @@ public:
    * @param  allow  Flag indicating whether transit connections are allowed.
    */
   virtual void SetAllowTransitConnections(const bool allow);
+
+  /**
+   * Sets the flag indicating whether edges with valid restriction conditional=destination are
+   * allowed.
+   */
+  void set_allow_conditional_destination(const bool allow);
 
   /**
    * Set the current travel mode.
@@ -732,6 +840,8 @@ protected:
   // and bicycle generally allow access (with small penalties).
   bool allow_destination_only_;
 
+  bool allow_conditional_destination_;
+
   // Travel mode
   TravelMode travel_mode_;
 
@@ -749,6 +859,7 @@ protected:
   float track_factor_;         // Avoid tracks factor.
   float living_street_factor_; // Avoid living streets factor.
   float service_factor_;       // Avoid service roads factor.
+  float closure_factor_;       // Avoid closed edges factor.
 
   // Transition costs
   sif::Cost country_crossing_cost_;
@@ -781,6 +892,8 @@ protected:
   // if ignore_closures_ is set to true by the user request, filter_closures_ is forced to false
   bool filter_closures_{true};
 
+  // Should we penalize uturns on short internal edges?
+  bool penalize_uturns_;
   /**
    * Get the base transition costs (and ferry factor) from the costing options.
    * @param costing_options Protocol buffer of costing options.
@@ -853,6 +966,8 @@ protected:
     // Penalty and factor to use service roads
     service_penalty_ = costing_options.service_penalty();
     service_factor_ = costing_options.service_factor();
+    // Closure factor to use for closed edges
+    closure_factor_ = costing_options.closure_factor();
 
     // Set the speed mask to determine which speed data types are allowed
     flow_mask_ = costing_options.flow_mask();
@@ -886,7 +1001,7 @@ protected:
     // Cases with both time and penalty: country crossing, ferry, rail_ferry, gate, toll booth
     sif::Cost c;
     c += country_crossing_cost_ * (node->type() == baldr::NodeType::kBorderControl);
-    c += gate_cost_ * (node->type() == baldr::NodeType::kGate);
+    c += gate_cost_ * (node->type() == baldr::NodeType::kGate) * (!node->tagged_access());
     c += bike_share_cost_ * (node->type() == baldr::NodeType::kBikeShare);
     c += toll_booth_cost_ *
          (node->type() == baldr::NodeType::kTollBooth || (edge->toll() && !pred->toll()));

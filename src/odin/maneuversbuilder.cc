@@ -1360,6 +1360,10 @@ void ManeuversBuilder::FinalizeManeuver(Maneuver& maneuver, int node_index) {
     }
   }
 
+  if (curr_edge->IsPedestrianCrossingUse() && prev_edge && prev_edge->IsFootwayUse()) {
+    maneuver.set_pedestrian_crossing(true);
+  }
+
   // Set the maneuver type
   SetManeuverType(maneuver);
 }
@@ -2041,13 +2045,22 @@ bool ManeuversBuilder::CanManeuverIncludePrevEdge(Maneuver& maneuver, int node_i
   // Intersecting forward edge
   if (IsIntersectingForwardEdge(node_index, prev_edge.get(), curr_edge.get())) {
     maneuver.set_intersecting_forward_edge(true);
+    LOG_TRACE("IntersectingForwardEdge");
     return false;
   }
 
   /////////////////////////////////////////////////////////////////////////////
+  // Determine previous edge names and common base names
+  std::unique_ptr<StreetNames> prev_edge_names =
+      StreetNamesFactory::Create(trip_path_->GetCountryCode(node_index), prev_edge->GetNameList());
+  std::unique_ptr<StreetNames> common_base_names =
+      prev_edge_names->FindCommonBaseNames(maneuver.street_names());
+
+  /////////////////////////////////////////////////////////////////////////////
   // Process 'T' intersection
-  if (IsTee(node_index, prev_edge.get(), curr_edge.get())) {
+  if (IsTee(node_index, prev_edge.get(), curr_edge.get(), !common_base_names->empty())) {
     maneuver.set_tee(true);
+    LOG_TRACE("T intersection");
     return false;
   }
 
@@ -2058,17 +2071,13 @@ bool ManeuversBuilder::CanManeuverIncludePrevEdge(Maneuver& maneuver, int node_i
                                     prev_edge->end_heading(), prev_edge->travel_mode())) &&
       !node->HasForwardTraversableIntersectingEdge(prev_edge->end_heading(),
                                                    prev_edge->travel_mode()) &&
-      node->HasTraversableIntersectingEdge(prev_edge->travel_mode())) {
+      node->HasTraversableExcludeUseXEdge(prev_edge->travel_mode(), TripLeg_Use_kTrackUse)) {
+    LOG_TRACE("Non-forward transition with intersecting traversable edge");
     return false;
   }
 
-  std::unique_ptr<StreetNames> prev_edge_names =
-      StreetNamesFactory::Create(trip_path_->GetCountryCode(node_index), prev_edge->GetNameList());
-
   /////////////////////////////////////////////////////////////////////////////
   // Process common base names
-  std::unique_ptr<StreetNames> common_base_names =
-      prev_edge_names->FindCommonBaseNames(maneuver.street_names());
   if (!common_base_names->empty()) {
     maneuver.set_street_names(std::move(common_base_names));
     return true;
@@ -2251,11 +2260,20 @@ bool ManeuversBuilder::IsPedestrianFork(int node_index,
     node->CalculateRightLeftIntersectingEdgeCounts(prev_edge->end_heading(), prev_edge->travel_mode(),
                                                    xedge_counts);
 
-    TripLeg_Use xedge_use;
+    boost::optional<TripLeg_Use> xedge_use;
     uint32_t straightest_traversable_xedge_turn_degree =
         node->GetStraightestTraversableIntersectingEdgeTurnDegree(prev_edge->end_heading(),
                                                                   prev_edge->travel_mode(),
                                                                   &xedge_use);
+
+    // This is needed to ensure we don't consider footways and crosswalks as
+    // different uses for determining pedestrian forks
+    bool is_current_and_intersecting_edge_of_similar_use =
+        (xedge_use &&
+         (curr_edge->use() == *xedge_use ||
+          (curr_edge->IsFootwayUse() && (*xedge_use == TripLeg_Use_kPedestrianCrossingUse ||
+                                         *xedge_use == TripLeg_Use_kFootwayUse))));
+
     // if there is a similar traversable intersecting edge
     //    or there is a relative straight traversable intersecting edge
     //    and the current edge use has to be the same as the intersecting edge use
@@ -2264,7 +2282,7 @@ bool ManeuversBuilder::IsPedestrianFork(int node_index,
     if (((((xedge_counts.left_similar_traversable_outbound > 0) ||
            (xedge_counts.right_similar_traversable_outbound > 0)) ||
           is_relative_straight(straightest_traversable_xedge_turn_degree)) &&
-         (curr_edge->use() == xedge_use)) ||
+         is_current_and_intersecting_edge_of_similar_use) ||
         (prev_edge->roundabout() && !curr_edge->roundabout())) {
       return true;
     }
@@ -2275,7 +2293,8 @@ bool ManeuversBuilder::IsPedestrianFork(int node_index,
 
 bool ManeuversBuilder::IsTee(int node_index,
                              EnhancedTripLeg_Edge* prev_edge,
-                             EnhancedTripLeg_Edge* curr_edge) const {
+                             EnhancedTripLeg_Edge* curr_edge,
+                             bool prev_edge_has_common_base_name) const {
 
   auto node = trip_path_->GetEnhancedNode(node_index);
   // Verify only one intersecting edge
@@ -2289,6 +2308,11 @@ bool ManeuversBuilder::IsTee(int node_index,
 
     // Intersecting edge must be traversable
     if (!(node->GetIntersectingEdge(0)->IsTraversable(prev_edge->travel_mode()))) {
+      return false;
+    }
+
+    if (prev_edge_has_common_base_name &&
+        !node->HasTraversableExcludeUseXEdge(prev_edge->travel_mode(), TripLeg_Use_kTrackUse)) {
       return false;
     }
 
@@ -2392,7 +2416,8 @@ bool ManeuversBuilder::IsIntersectingForwardEdge(int node_index,
     // and forward intersecting edge exists
     // then return true
     if (!curr_edge->IsForward(turn_degree) &&
-        node->HasFowardIntersectingEdge(prev_edge->end_heading())) {
+        node->HasForwardTraversableExcludeUseXEdge(prev_edge->end_heading(), prev_edge->travel_mode(),
+                                                   TripLeg_Use_kTrackUse)) {
       return true;
     }
     // if path edge is forward
@@ -2560,6 +2585,19 @@ bool ManeuversBuilder::IsTurnChannelManeuverCombinable(std::list<Maneuver>::iter
     }
 
     Turn::Type new_turn_type = Turn::GetType(new_turn_degree);
+
+    // Turn channel cannot exceed kMaxTurnChannelLength (200m)
+    // and turn channel cannot have forward traversable intersecting edge
+    auto node = trip_path_->GetEnhancedNode(next_man->begin_node_index());
+    bool common_turn_channel_criteria =
+        ((curr_man->length(Options::kilometers) <= (kMaxTurnChannelLength * kKmPerMeter)) &&
+         !node->HasForwardTraversableIntersectingEdge(curr_man->end_heading(),
+                                                      curr_man->travel_mode()));
+
+    // Verify common turn channel criteria
+    if (!common_turn_channel_criteria) {
+      return false;
+    }
 
     // Process simple right turn channel
     // Combineable if begin of turn channel is relative right
@@ -2762,6 +2800,12 @@ void ManeuversBuilder::ProcessRoundabouts(std::list<Maneuver>& maneuvers) {
           // calculate correct turn angles when exit roundabout maneuver is
           // suppressed
           curr_man->set_roundabout_exit_begin_heading(next_man->begin_heading());
+
+          // Store the next maneuver's turn degree and exit shape index. This is where
+          // we store the turn angles when exit roundabout maneuver is
+          // suppressed
+          curr_man->set_roundabout_exit_turn_degree(next_man->turn_degree());
+          curr_man->set_roundabout_exit_shape_index(curr_man->end_shape_index());
 
           // Set the traversable_outbound_intersecting_edge booleans
           curr_man->set_has_left_traversable_outbound_intersecting_edge(
