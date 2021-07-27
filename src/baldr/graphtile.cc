@@ -20,7 +20,11 @@
 #include <iostream>
 #include <locale>
 #include <string>
+#if defined CHARLIE_BUILD
+#include <platform/specific/port_thread.h>
+#else
 #include <thread>
+#endif
 #include <utility>
 #include <vector>
 
@@ -467,7 +471,7 @@ GraphTile::FileSuffix(const GraphId& graphid, const std::string& fname_suffix, b
     throw std::runtime_error("Could not compute FileSuffix for GraphId with invalid tile id:" +
                              std::to_string(graphid));
   }
-  size_t max_length = static_cast<size_t>(std::log10(std::max(1, max_id))) + 1;
+  size_t max_length = static_cast<size_t>(std::log10(std::max(static_cast<decltype(max_id)>(1), max_id))) + 1;
   const size_t remainder = max_length % 3;
   if (remainder) {
     max_length += 3 - remainder;
@@ -572,7 +576,7 @@ GraphId GraphTile::GetTileId(const std::string& fname) {
 
   // get the number of sub directories that we should have
   auto max_id = tile_level.tiles.ncolumns() * tile_level.tiles.nrows() - 1;
-  size_t parts = static_cast<size_t>(std::log10(std::max(1, max_id))) + 1;
+  size_t parts = static_cast<size_t>(std::log10(std::max(static_cast<decltype(max_id)>(1), max_id))) + 1;
   if (parts % 3 != 0) {
     parts += 3 - (parts % 3);
   }

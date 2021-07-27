@@ -216,7 +216,7 @@ public:
       // For each cell, skipping the outer rim since its out of bounds
       for (int row = 1; row < this->nrows_ - 1; ++row) {
         for (int col = 1; col < this->ncolumns_ - 1; ++col) {
-          int tileid = this->TileId(col, row);
+          int tileid = this->TileId(static_cast<int32_t>(col), static_cast<int32_t>(row));
           auto cell1 = data_[tileid][metric_index];
           auto cell2 = data_[tileid + this->ncolumns_][metric_index];     // TileId(col,   row+1)];
           auto cell3 = data_[tileid + 1][metric_index];                   // TileId(col+1, row)];

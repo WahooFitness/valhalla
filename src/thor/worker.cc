@@ -185,6 +185,7 @@ thor_worker_t::work(const std::list<zmq::message_t>& job,
 }
 
 void run_service(const boost::property_tree::ptree& config) {
+#if 0
   // gracefully shutdown when asked via SIGTERM
   prime_server::quiesce(config.get<unsigned int>("httpd.service.drain_seconds", 28),
                         config.get<unsigned int>("httpd.service.shutting_seconds", 1));
@@ -207,6 +208,8 @@ void run_service(const boost::property_tree::ptree& config) {
                                           std::placeholders::_3),
                                 std::bind(&thor_worker_t::cleanup, std::ref(thor_worker)));
   worker.work();
+
+#endif
 
   // TODO: should we listen for SIGINT and terminate gracefully/exit(0)?
 }

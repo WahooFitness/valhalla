@@ -134,6 +134,17 @@
 #include <vector>
 #include <sys/stat.h>
 
+#ifdef CHARLIE_BUILD
+#include <platform/specific/port_mutex.h>
+#include <platform/specific/port_stdlib.h>
+#include <platform/specific/port_stat.h>
+#include <platform/specific/port_unistd.h>
+
+ssize_t readlink (const char * __path, char * __buf, size_t __buflen) {
+    return 0;
+}
+#endif
+
 // unistd.h is used on some platforms as part of the the means to get
 // the current time zone. On Win32 windows.h provides a means to do it.
 // gcc/mingw supports unistd.h on Win32 but MSVC does not.
@@ -2239,7 +2250,9 @@ leap_second::leap_second(const sys_seconds& s, detail::undocumented)
 #else  // !USE_OS_TZDB
 
 time_zone::time_zone(const std::string& s, detail::undocumented)
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
     : adjusted_(new std::once_flag{})
+#endif  // defined(_MSC_VER) && (_MSC_VER < 1900)
 {
     try
     {
@@ -2525,11 +2538,14 @@ time_zone::get_info_impl(sys_seconds tp, int tz_int) const
         throw std::runtime_error("The year " + std::to_string(static_cast<int>(y)) +
             " is out of range:[" + std::to_string(static_cast<int>(min_year)) + ", "
                                  + std::to_string(static_cast<int>(max_year)) + "]");
+#if defined(_MSC_VER) && (_MSC_VER < 1900)                                 
     std::call_once(*adjusted_,
                    [this]()
                    {
                        const_cast<time_zone*>(this)->adjust_infos(get_tzdb().rules);
                    });
+#endif
+
     auto i = std::upper_bound(zonelets_.begin(), zonelets_.end(), tp,
         [timezone](sys_seconds t, const zonelet& zl)
         {
@@ -2584,11 +2600,13 @@ operator<<(std::ostream& os, const time_zone& z)
     detail::save_ostream<char> _(os);
     os.fill(' ');
     os.flags(std::ios::dec | std::ios::left);
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
     std::call_once(*z.adjusted_,
                    [&z]()
                    {
                        const_cast<time_zone&>(z).adjust_infos(get_tzdb().rules);
                    });
+#endif
     os.width(35);
     os << z.name_;
     std::string indent;
@@ -4034,21 +4052,21 @@ load_timezone_mappings_from_xml_file()
 
 static std::vector<std::string> get_tz_data_file_list() {
   std::vector<std::string> tz_data_file_list;
-  tz_data_file_list.emplace_back(date_time_africa, date_time_africa + date_time_africa_len);
-  tz_data_file_list.emplace_back(date_time_antarctica,
-                                 date_time_antarctica + date_time_antarctica_len);
-  tz_data_file_list.emplace_back(date_time_asia, date_time_asia + date_time_asia_len);
-  tz_data_file_list.emplace_back(date_time_australasia,
-                                 date_time_australasia + date_time_australasia_len);
-  tz_data_file_list.emplace_back(date_time_backward, date_time_backward + date_time_backward_len);
-  tz_data_file_list.emplace_back(date_time_etcetera, date_time_etcetera + date_time_etcetera_len);
-  tz_data_file_list.emplace_back(date_time_europe, date_time_europe + date_time_europe_len);
-  tz_data_file_list.emplace_back(date_time_pacificnew,
-                                 date_time_pacificnew + date_time_pacificnew_len);
+//   tz_data_file_list.emplace_back(date_time_africa, date_time_africa + date_time_africa_len);
+//   tz_data_file_list.emplace_back(date_time_antarctica,
+//                                  date_time_antarctica + date_time_antarctica_len);
+//   tz_data_file_list.emplace_back(date_time_asia, date_time_asia + date_time_asia_len);
+//   tz_data_file_list.emplace_back(date_time_australasia,
+//                                  date_time_australasia + date_time_australasia_len);
+//   tz_data_file_list.emplace_back(date_time_backward, date_time_backward + date_time_backward_len);
+//   tz_data_file_list.emplace_back(date_time_etcetera, date_time_etcetera + date_time_etcetera_len);
+//   tz_data_file_list.emplace_back(date_time_europe, date_time_europe + date_time_europe_len);
+//   tz_data_file_list.emplace_back(date_time_pacificnew,
+//                                  date_time_pacificnew + date_time_pacificnew_len);
   tz_data_file_list.emplace_back(date_time_northamerica,
                                  date_time_northamerica + date_time_northamerica_len);
-  tz_data_file_list.emplace_back(date_time_southamerica,
-                                 date_time_southamerica + date_time_southamerica_len);
+//   tz_data_file_list.emplace_back(date_time_southamerica,
+//                                  date_time_southamerica + date_time_southamerica_len);
   tz_data_file_list.emplace_back(date_time_systemv, date_time_systemv + date_time_systemv_len);
   tz_data_file_list.emplace_back(date_time_leapseconds,
                                  date_time_leapseconds + date_time_leapseconds_len);

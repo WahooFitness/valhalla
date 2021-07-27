@@ -9,7 +9,6 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <dirent.h>
 #include <iomanip>
 #include <memory>
 #include <stdexcept>
@@ -17,13 +16,24 @@
 #include <sys/stat.h>
 #include <vector>
 
+#ifdef CHARLIE_BUILD
+#include <platform/specific/port_dirent.h>
+using dir_type = FF_DIR;
+#else
+#include <dirent.h>
+using dir_type = DIR;
+#endif
+
 #ifdef _WIN32
 #include <direct.h> // _mkdir
 #include <fcntl.h>
 #include <io.h> // _chsize
-#else
-#include <unistd.h>
+#elif defined CHARLIE_BUILD
+#include <platform/specific/port_unistd.h>
 #endif
+// #else
+#include <unistd.h>
+// #endif
 
 #ifdef __MINGW32__
 #include <limits>
@@ -187,7 +197,7 @@ private:
     if (stat(path_.c_str(), &s) == 0) {
       // if it is a directory and we are going to iterate over it
       if (S_ISDIR(s.st_mode) && iterate) {
-        dir_.reset(opendir(path_.c_str()), [](DIR* d) {
+        dir_.reset(opendir(path_.c_str()), [](dir_type* d) {
           if (d)
             closedir(d);
         });
@@ -256,7 +266,7 @@ private:
     return entry_.get();
   }
 
-  std::shared_ptr<DIR> dir_;
+  std::shared_ptr<dir_type> dir_;
   std::shared_ptr<dirent> entry_;
   filesystem::path path_;
   mutable std::uintmax_t file_size_;

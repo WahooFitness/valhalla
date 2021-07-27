@@ -10,6 +10,12 @@
 #include <mutex>
 #include <thread>
 
+#ifdef CHARLIE_BUILD
+#include <platform/specific/port_condition_variable.h>
+#include <platform/specific/port_thread.h>
+#include <platform/specific/port_mutex.h>
+#endif
+
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 

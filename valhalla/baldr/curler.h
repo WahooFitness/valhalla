@@ -9,6 +9,11 @@
 #include <string>
 #include <vector>
 
+#ifdef CHARLIE_BUILD
+#include <platform/specific/port_condition_variable.h>
+#include <platform/specific/port_mutex.h>
+#endif
+
 namespace valhalla {
 namespace baldr {
 

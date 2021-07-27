@@ -24,6 +24,8 @@ using namespace valhalla::tyr;
 using namespace valhalla::midgard;
 using namespace valhalla::baldr;
 
+#undef HAVE_HTTP
+
 namespace valhalla {
 namespace odin {
 

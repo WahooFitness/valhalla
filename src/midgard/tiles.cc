@@ -193,7 +193,7 @@ Tiles<coord_t>::Tiles(const coord_t& min_pt,
 // Get the list of tiles that lie within the specified bounding box. Since tiles as well as the
 // bounding box are both aligned to the axes we can simply find tiles by iterating over rows
 // and columns of tiles from the minimum to maximum.
-template <class coord_t> std::vector<int> Tiles<coord_t>::TileList(const AABB2<coord_t>& bbox) const {
+template <class coord_t> std::vector<int32_t> Tiles<coord_t>::TileList(const AABB2<coord_t>& bbox) const {
   // Check if x range needs to be split
   std::vector<AABB2<coord_t>> bboxes;
   if (wrapx_) {
@@ -216,10 +216,10 @@ template <class coord_t> std::vector<int> Tiles<coord_t>::TileList(const AABB2<c
 
   std::vector<int32_t> tilelist;
   for (const auto& bb : bboxes) {
-    int32_t minrow = std::max(Row(bb.miny()), 0);
-    int32_t maxrow = std::max(Row(bb.maxy()), 0);
-    int32_t mincol = std::max(Col(bb.minx()), 0);
-    int32_t maxcol = std::max(Col(bb.maxx()), 0);
+    int32_t minrow = std::max(Row(bb.miny()), int32_t{0});
+    int32_t maxrow = std::max(Row(bb.maxy()), int32_t{0});
+    int32_t mincol = std::max(Col(bb.minx()), int32_t{0});
+    int32_t maxcol = std::max(Col(bb.maxx()), int32_t{0});
     for (int32_t row = minrow; row <= maxrow; ++row) {
       int32_t tileid = TileId(mincol, row);
       for (int32_t col = mincol; col <= maxcol; ++col, ++tileid) {

@@ -1,5 +1,7 @@
 #include "thor/worker.h"
 
+#undef HAVE_HTTP
+
 namespace valhalla {
 namespace thor {
 void thor_worker_t::status(Api&) const {

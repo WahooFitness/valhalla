@@ -16,7 +16,7 @@ using namespace valhalla::sif;
 
 namespace {
 
-constexpr uint32_t kInitialEdgeLabelCountBD = 1000000;
+constexpr uint32_t kInitialEdgeLabelCountBD = 100000;
 
 // Threshold (seconds) to extend search once the first connection has been found.
 // TODO - this is currently set based on some exceptional cases (e.g. routes taking
@@ -67,17 +67,17 @@ BidirectionalAStar::~BidirectionalAStar() {
 
 // Clear the temporary information generated during path construction.
 void BidirectionalAStar::Clear() {
-  if (edgelabels_forward_.size() > max_reserved_labels_count_) {
-    // reduce edge labels capacity
-    edgelabels_forward_.resize(max_reserved_labels_count_);
-    edgelabels_forward_.shrink_to_fit();
-  }
+  // if (edgelabels_forward_.size() > max_reserved_labels_count_) {
+  //   // reduce edge labels capacity
+  //   edgelabels_forward_.resize(max_reserved_labels_count_);
+  //   edgelabels_forward_.shrink_to_fit();
+  // }
   edgelabels_forward_.clear();
-  if (edgelabels_reverse_.size() > max_reserved_labels_count_) {
-    // reduce edge labels capacity
-    edgelabels_reverse_.resize(max_reserved_labels_count_);
-    edgelabels_reverse_.shrink_to_fit();
-  }
+  // if (edgelabels_reverse_.size() > max_reserved_labels_count_) {
+  //   // reduce edge labels capacity
+  //   edgelabels_reverse_.resize(max_reserved_labels_count_);
+  //   edgelabels_reverse_.shrink_to_fit();
+  // }
   edgelabels_reverse_.clear();
   adjacencylist_forward_.clear();
   adjacencylist_reverse_.clear();
@@ -103,8 +103,8 @@ void BidirectionalAStar::Init(const PointLL& origll, const PointLL& destll) {
 
   // Reserve size for edge labels - do this here rather than in constructor so
   // to limit how much extra memory is used for persistent objects
-  edgelabels_forward_.reserve(std::min(max_reserved_labels_count_, kInitialEdgeLabelCountBD));
-  edgelabels_reverse_.reserve(std::min(max_reserved_labels_count_, kInitialEdgeLabelCountBD));
+  // edgelabels_forward_.reserve(std::min(max_reserved_labels_count_, kInitialEdgeLabelCountBD));
+  // edgelabels_reverse_.reserve(std::min(max_reserved_labels_count_, kInitialEdgeLabelCountBD));
 
   // Construct adjacency list and initialize edge status lookup.
   // Set bucket size and cost range based on DynamicCost.

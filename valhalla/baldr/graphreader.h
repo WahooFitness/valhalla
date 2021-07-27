@@ -3,7 +3,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#ifdef CHARLIE_BUILD
+#include <platform/specific/port_mutex.h>
+#else
 #include <mutex>
+#endif
 #include <string>
 #include <unordered_map>
 

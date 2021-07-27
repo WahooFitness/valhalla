@@ -26,6 +26,10 @@
 #ifdef _WIN32
 #include <io.h>
 #define stat _stat64
+#elif defined CHARLIE_BUILD
+#include <platform/specific/port_unistd.h>
+#include <platform/specific/port_mman.h>
+#include <sys/stat.h>
 #else
 #include <sys/mman.h>
 #include <sys/stat.h>

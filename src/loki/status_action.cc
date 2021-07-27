@@ -1,5 +1,7 @@
 #include "loki/worker.h"
 
+#undef HAVE_HTTP
+
 namespace valhalla {
 namespace loki {
 void loki_worker_t::status(Api&) const {
