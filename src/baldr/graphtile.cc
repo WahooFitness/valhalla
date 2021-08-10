@@ -63,6 +63,14 @@ private:
   const std::vector<char> memory_;
 };
 
+class UnonwedGraphMemory final : public GraphMemory {
+public:
+  UnonwedGraphMemory(char* start, size_t offset, void* cleanup_ptr, void (*cleanup_function)(void*, char*)) {
+    data = start;
+    size = offset;
+  }
+};
+
 graph_tile_ptr GraphTile::DecompressTile(const GraphId& graphid,
                                          const std::vector<char>& compressed) {
   // for setting where to read compressed data from
@@ -231,6 +239,12 @@ graph_tile_ptr GraphTile::CacheTileURL(const std::string& tile_url,
   // turn the memory into a tile
   if (tile_getter->gzipped()) {
     return DecompressTile(graphid, result.bytes_);
+  }
+
+  if (result.start_ != nullptr && result.length_ != 0) {
+    return graph_tile_ptr{
+      new GraphTile(graphid, std::make_unique<const UnonwedGraphMemory>(result.start_, result.length_))
+    };
   }
 
   return graph_tile_ptr{

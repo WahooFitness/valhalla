@@ -27,7 +27,14 @@ public:
    * The result of synchronous operation. Contains raw data and operations result code.
    */
   struct response_t {
+    
+    // Use these members for returning memory that is managed with special requirements
+    char* start_ = nullptr;
+    size_t length_ = 0;
+
+    // Used for returning a hunk of memory directly
     bytes_t bytes_;
+
     status_code_t status_ = status_code_t::FAILURE;
   };
 
