@@ -65,7 +65,7 @@ private:
 
 class UnonwedGraphMemory final : public GraphMemory {
 public:
-  UnonwedGraphMemory(char* start, size_t offset, void* cleanup_ptr, void (*cleanup_function)(void*, char*)) {
+  UnonwedGraphMemory(char* start, size_t offset) {
     data = start;
     size = offset;
   }
