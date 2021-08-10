@@ -1126,7 +1126,7 @@ std::vector<double> elevationFromTrimmedPath(iterator_t trip_shape_begin,
   }
 
   for (auto point = trip_shape_begin; point != trip_shape_end; ++point) {
-    LOG_INFO("Elevation matching point (" + std::to_string(point->lat()) + ", " +
+    LOG_DEBUG("Elevation matching point (" + std::to_string(point->lat()) + ", " +
               std::to_string(point->lng()) + ")");
     auto elevation_sample = std::find_if(std::begin(elevation_samples), std::end(elevation_samples),
                      [point](const TripPoint& trip_point) {
