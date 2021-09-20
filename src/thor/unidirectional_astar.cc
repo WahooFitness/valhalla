@@ -234,11 +234,13 @@ inline bool UnidirectionalAStar<expansion_direction, FORWARD>::ExpandInner(
                        ? costing_->EdgeCost(meta.edge, tile, time_info.second_of_week, flow_sources)
                        : costing_->EdgeCost(opp_edge, t2, time_info.second_of_week, flow_sources);
 
-  auto transition_cost =
+  sif::Cost transition_cost =
       FORWARD ? costing_->TransitionCost(meta.edge, nodeinfo, pred)
               : costing_->TransitionCostReverse(meta.edge->localedgeidx(), nodeinfo, opp_edge,
-                                                opp_pred_edge, pred.has_measured_speed(),
+                                                opp_pred_edge,
+                                                static_cast<bool>(flow_sources & kDefaultFlowMask),
                                                 pred.internal_turn());
+
   Cost newcost = pred.cost() + edge_cost;
   newcost += transition_cost;
 
@@ -305,7 +307,7 @@ inline bool UnidirectionalAStar<expansion_direction, FORWARD>::ExpandInner(
                              (pred.not_thru_pruning() || !meta.edge->not_thru()),
                              (pred.closure_pruning() || !(costing_->IsClosed(meta.edge, tile))),
                              static_cast<bool>(flow_sources & kDefaultFlowMask),
-                             costing_->TurnType(meta.edge->localedgeidx(), nodeinfo, meta.edge),
+                             costing_->TurnType(pred.opp_local_idx(), nodeinfo, meta.edge),
                              restriction_idx);
     *meta.edge_status = {EdgeSet::kTemporary, idx};
     adjacencylist_.add(idx);
@@ -340,7 +342,8 @@ std::vector<PathInfo> UnidirectionalAStar<ExpansionType::forward>::FormPath(cons
        edgelabel_index = edgelabels_[edgelabel_index].predecessor()) {
     const EdgeLabel& edgelabel = edgelabels_[edgelabel_index];
     path.emplace_back(edgelabel.mode(), edgelabel.cost(), edgelabel.edgeid(), 0,
-                      edgelabel.restriction_idx(), edgelabel.transition_cost());
+                      edgelabel.path_distance(), edgelabel.restriction_idx(),
+                      edgelabel.transition_cost());
 
     // Check if this is a ferry
     if (edgelabel.use() == Use::kFerry) {
@@ -383,8 +386,8 @@ std::vector<PathInfo> UnidirectionalAStar<ExpansionType::reverse>::FormPath(cons
     cost -= edgelabel.transition_cost();
     cost += previous_transition_cost;
 
-    path.emplace_back(edgelabel.mode(), cost, edgelabel.opp_edgeid(), 0, edgelabel.restriction_idx(),
-                      previous_transition_cost);
+    path.emplace_back(edgelabel.mode(), cost, edgelabel.opp_edgeid(), 0, edgelabel.path_distance(),
+                      edgelabel.restriction_idx(), previous_transition_cost);
 
     // Check if this is a ferry
     if (edgelabel.use() == Use::kFerry) {
@@ -787,6 +790,9 @@ UnidirectionalAStar<expansion_direction, FORWARD>::SetDestination(GraphReader& g
 
     GraphId edgeid(edge.graph_id());
     graph_tile_ptr tile = graphreader.GetGraphTile(edgeid);
+    if (tile == nullptr) {
+      continue;
+    }
     if (FORWARD) {
       // Disallow any user avoided edges if the avoid location is behind the destination along the
       // edge

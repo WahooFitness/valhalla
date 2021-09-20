@@ -49,7 +49,7 @@ struct BSSConnection {
 
   uint64_t wayid = std::numeric_limits<uint64_t>::max();
   std::vector<std::string> names = {};
-  std::vector<std::string> tagged_names = {};
+  std::vector<std::string> tagged_values = {};
   std::vector<PointLL> shape = {};
   // Is the outbound edge from the waynode is forward?
   bool is_forward_from_waynode = true;
@@ -76,7 +76,7 @@ struct BSSConnection {
      * */
     wayid = edgeinfo.wayid();
     names = edgeinfo.GetNames();
-    tagged_names = edgeinfo.GetNames(true);
+    tagged_values = edgeinfo.GetTaggedValues();
     is_forward_from_waynode = is_forward;
     speed = best.directededge->speed();
     surface = best.directededge->surface();
@@ -93,23 +93,6 @@ struct BSSConnection {
     }
     return way_node_id.id() < other.way_node_id.id();
   }
-};
-
-template <typename T> struct Finally {
-  T t;
-  explicit Finally(T t) : t(t){};
-  Finally() = delete;
-  Finally(Finally&& f) = default;
-  Finally(const Finally&) = delete;
-  Finally& operator=(const Finally&) = delete;
-  Finally& operator=(Finally&&) = delete;
-  ~Finally() {
-    t();
-  };
-};
-
-template <typename T> Finally<T> make_finally(T t) {
-  return Finally<T>{t};
 };
 
 DirectedEdge make_directed_edge(const GraphId endnode,
@@ -133,7 +116,7 @@ DirectedEdge make_directed_edge(const GraphId endnode,
   directededge.set_reverseaccess(accesses[static_cast<size_t>(is_forward)]);
 
   directededge.set_named(conn.names.size());
-  directededge.set_named(conn.names.size() > 0 || conn.tagged_names.size() > 0);
+  directededge.set_named(conn.names.size() > 0 || conn.tagged_values.size() > 0);
   directededge.set_forward(is_forward);
   directededge.set_bss_connection(true);
   return directededge;
@@ -283,14 +266,20 @@ void add_bss_nodes_and_edges(GraphTileBuilder& tilebuilder_local,
   auto scoped_finally = make_finally([&tilebuilder_local, &tile, &lock]() {
     LOG_INFO("Storing local tile data with bss nodes, tile id: " +
              std::to_string(tile.id().tileid()));
+    UNUSED(tile);
     std::lock_guard<std::mutex> l(lock);
     tilebuilder_local.StoreTileData();
   });
 
   for (auto it = new_connections.begin(); it != new_connections.end(); std::advance(it, 4)) {
     size_t edge_index = tilebuilder_local.directededges().size();
-    NodeInfo new_bss_node{tile.header()->base_ll(), it->bss_ll, (kPedestrianAccess | kBicycleAccess),
-                          NodeType::kBikeShare,     false,      true};
+    NodeInfo new_bss_node{tile.header()->base_ll(),
+                          it->bss_ll,
+                          (kPedestrianAccess | kBicycleAccess),
+                          NodeType::kBikeShare,
+                          false,
+                          true,
+                          false};
 
     new_bss_node.set_mode_change(true);
     new_bss_node.set_edge_index(edge_index);
@@ -315,7 +304,7 @@ void add_bss_nodes_and_edges(GraphTileBuilder& tilebuilder_local,
           tilebuilder_local.AddEdgeInfo(tilebuilder_local.directededges().size(),
                                         new_bss_node_graphid, bss_to_waynode.way_node_id,
                                         bss_to_waynode.wayid, 0, 0, 0, bss_to_waynode.shape,
-                                        bss_to_waynode.names, bss_to_waynode.tagged_names, 0, added);
+                                        bss_to_waynode.names, bss_to_waynode.tagged_values, 0, added);
       directededge.set_edgeinfo_offset(edge_info_offset);
       tilebuilder_local.directededges().emplace_back(std::move(directededge));
     }
@@ -362,13 +351,14 @@ void create_edges(GraphTileBuilder& tilebuilder_local,
 
     LOG_INFO("Tile id: " + std::to_string(tile.id().tileid()) + " It took " + std::to_string(secs) +
              " seconds to create edges. Now storing local tile data with new edges");
+    UNUSED(tile);
+    UNUSED(secs);
     std::lock_guard<std::mutex> l(lock);
     tilebuilder_local.StoreTileData();
   });
 
   // Move existing nodes and directed edge builder vectors and clear the lists
   std::vector<NodeInfo> currentnodes(std::move(tilebuilder_local.nodes()));
-  uint32_t nodecount = currentnodes.size();
 
   tilebuilder_local.nodes().clear();
   std::vector<DirectedEdge> currentedges(std::move(tilebuilder_local.directededges()));
@@ -451,7 +441,7 @@ void create_edges(GraphTileBuilder& tilebuilder_local,
       uint32_t edge_info_offset =
           tilebuilder_local.AddEdgeInfo(tilebuilder_local.directededges().size(), lower->way_node_id,
                                         lower->bss_node_id, lower->wayid, 0, 0, 0, lower->shape,
-                                        lower->names, lower->tagged_names, 0, added);
+                                        lower->names, lower->tagged_values, 0, added);
       directededge.set_edgeinfo_offset(edge_info_offset);
 
       tilebuilder_local.directededges().emplace_back(std::move(directededge));
@@ -580,7 +570,7 @@ void BssBuilder::Build(const boost::property_tree::ptree& pt, const std::string&
   auto local_level = TileHierarchy::levels().back().level;
 
   // Group the nodes by their tiles. In the next step, we will work on each tile only once
-  for (const auto& node : osm_nodes) {
+  for (auto node : osm_nodes) {
     auto latlng = node.latlng();
     auto tile_id = TileHierarchy::GetGraphId({latlng.first, latlng.second}, local_level);
     graph_tile_ptr local_tile = reader.GetGraphTile(tile_id);

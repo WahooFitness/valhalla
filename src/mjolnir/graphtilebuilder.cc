@@ -590,7 +590,7 @@ uint32_t GraphTileBuilder::AddEdgeInfo(const uint32_t edgeindex,
                                        const uint32_t speed_limit,
                                        const shape_container_t& lls,
                                        const std::vector<std::string>& names,
-                                       const std::vector<std::string>& tagged_names,
+                                       const std::vector<std::string>& tagged_values,
                                        const uint16_t types,
                                        bool& added,
                                        bool diff_names) {
@@ -632,7 +632,7 @@ uint32_t GraphTileBuilder::AddEdgeInfo(const uint32_t edgeindex,
       }
       location++;
     }
-    for (const auto& name : tagged_names) {
+    for (const auto& name : tagged_values) {
       // Stop adding names if max count has been reached
       if (name_count == kMaxNamesPerEdge) {
         LOG_WARN("Too many names for edgeindex: " + std::to_string(edgeindex));
@@ -706,7 +706,7 @@ uint32_t GraphTileBuilder::AddEdgeInfo(const uint32_t edgeindex,
                                        const uint32_t speed_limit,
                                        const std::string& llstr,
                                        const std::vector<std::string>& names,
-                                       const std::vector<std::string>& tagged_names,
+                                       const std::vector<std::string>& tagged_values,
                                        const uint16_t types,
                                        bool& added,
                                        bool diff_names) {
@@ -748,7 +748,7 @@ uint32_t GraphTileBuilder::AddEdgeInfo(const uint32_t edgeindex,
       }
       location++;
     }
-    for (const auto& name : tagged_names) {
+    for (const auto& name : tagged_values) {
       // Stop adding names if max count has been reached
       if (name_count == kMaxNamesPerEdge) {
         LOG_WARN("Too many names for edgeindex: " + std::to_string(edgeindex));
@@ -908,7 +908,7 @@ AccessRestriction& GraphTileBuilder::accessrestriction_builder(const size_t idx)
 }
 
 // Gets a non-const sign from existing tile data.
-Sign& GraphTileBuilder::sign(const size_t idx) {
+valhalla::baldr::Sign& GraphTileBuilder::sign(const size_t idx) {
   if (idx < header_->signcount()) {
     return signs_[idx];
   }
@@ -916,7 +916,7 @@ Sign& GraphTileBuilder::sign(const size_t idx) {
 }
 
 // Gets a sign builder at the specified index.
-Sign& GraphTileBuilder::sign_builder(const size_t idx) {
+valhalla::baldr::Sign& GraphTileBuilder::sign_builder(const size_t idx) {
   if (idx < header_->signcount()) {
     return signs_builder_[idx];
   }
