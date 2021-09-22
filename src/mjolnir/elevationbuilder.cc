@@ -174,7 +174,7 @@ void add_edge_elevation(uint32_t edgeIndex,
                         GraphTileBuilder& tileBuilder,
                         const valhalla::skadi::sample* sample) {
   const auto& directedEdge = tileBuilder.directededge(edgeIndex);
-  const auto edgeInfo = tileBuilder.edgeinfo(directedEdge.edgeinfo_offset());
+  const auto edgeInfo = tileBuilder.edgeinfo(&directedEdge);
   auto heights = sample->get_all(edgeInfo.shape());
 
   if (!directedEdge.forward()) {
