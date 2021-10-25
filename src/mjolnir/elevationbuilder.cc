@@ -43,7 +43,7 @@ void add_edge_elevation(uint32_t edgeIndex,
 void add_elevation(const boost::property_tree::ptree& pt,
                    std::deque<GraphId>& tilequeue,
                    std::mutex& lock,
-                   const std::unique_ptr<const valhalla::skadi::sample>& sample,
+                   const std::unique_ptr<valhalla::skadi::sample>& sample,
                    bool embed_elevation,
                    std::promise<uint32_t>& /*result*/) {
   // Local Graphreader
@@ -198,7 +198,7 @@ void ElevationBuilder::Build(const boost::property_tree::ptree& pt) {
   boost::optional<std::string> elevation = pt.get_optional<std::string>("additional_data.elevation");
   boost::optional<bool> embed_elevation = pt.get_optional<bool>("additional_data.embed_elevation");
 
-  std::unique_ptr<const skadi::sample> sample;
+  std::unique_ptr<skadi::sample> sample;
   if (elevation && filesystem::exists(*elevation)) {
     sample.reset(new skadi::sample(*elevation));
   } else {
@@ -235,7 +235,7 @@ void ElevationBuilder::Build(const boost::property_tree::ptree& pt) {
   for (auto& thread : threads) {
     results.emplace_back();
     thread.reset(new std::thread(add_elevation, std::cref(pt), std::ref(tilequeue), std::ref(lock),
-                                 std::cref(sample), embed_elevation.value_or(false), std::ref(results.back())));
+                                 std::ref(sample), embed_elevation.value_or(false), std::ref(results.back())));
   }
 
   // Wait for threads to finish
