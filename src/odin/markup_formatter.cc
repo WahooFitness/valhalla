@@ -1,4 +1,5 @@
 #include <string>
+#include <unordered_map>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -6,7 +7,7 @@
 #include <boost/optional.hpp>
 
 #include "odin/markup_formatter.h"
-#include "proto/tripcommon.pb.h"
+#include "proto/common.pb.h"
 
 namespace {
 constexpr auto kQuotesTag = "<QUOTES>";
@@ -28,7 +29,6 @@ const std::string& PronunciationAlphabetToString(valhalla::Pronunciation_Alphabe
     throw std::runtime_error("Missing value in protobuf Pronunciation_Alphabet enum to string");
   return f->second;
 }
-
 } // namespace
 
 namespace valhalla {

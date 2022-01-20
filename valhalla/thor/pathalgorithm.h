@@ -126,8 +126,8 @@ public:
    * @param  expansion_callback  the functor to call back when the algorithm makes progress
    *                             on a given edge
    */
-  using expansion_callback_t =
-      std::function<void(baldr::GraphReader&, const char*, baldr::GraphId, const char*, bool)>;
+  using expansion_callback_t = std::function<
+      void(baldr::GraphReader&, baldr::GraphId, const char*, const char*, float, uint32_t, float)>;
   void set_track_expansion(const expansion_callback_t& expansion_callback) {
     expansion_callback_ = expansion_callback;
   }
@@ -162,9 +162,9 @@ protected:
   virtual bool IsTrivial(const baldr::GraphId& edgeid,
                          const valhalla::Location& origin,
                          const valhalla::Location& destination) const {
-    for (const auto& destination_edge : destination.path_edges()) {
+    for (const auto& destination_edge : destination.correlation().edges()) {
       if (destination_edge.graph_id() == edgeid) {
-        for (const auto& origin_edge : origin.path_edges()) {
+        for (const auto& origin_edge : origin.correlation().edges()) {
           if (origin_edge.graph_id() == edgeid &&
               origin_edge.percent_along() <= destination_edge.percent_along()) {
             return true;

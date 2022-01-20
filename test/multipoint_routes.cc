@@ -56,18 +56,18 @@ void check_dates(bool time_dependent,
   // non-time dependent should get no dates, time dependent should all have dates that increase
   uint64_t epoch = 0;
   for (const auto& l : locations) {
-    if (l.has_date_time()) {
+    if (l.has_date_time_case()) {
       EXPECT_TRUE(time_dependent) << "Routes without time dependency should have not dates attached";
     } else {
       EXPECT_FALSE(time_dependent) << "Routes with time dependency should have dates attached";
     }
 
-    if (l.has_date_time()) {
+    if (l.has_date_time_case()) {
       // should be localtime, ie no timezone
       EXPECT_TRUE(l.date_time().find('+', l.date_time().find('T')) == std::string::npos &&
                   l.date_time().find('-', l.date_time().find('T')) == std::string::npos);
       // get the timezone
-      baldr::GraphId edge_id(l.path_edges().begin()->graph_id());
+      baldr::GraphId edge_id(l.correlation().edges().begin()->graph_id());
       auto tile = reader.GetGraphTile(edge_id);
       const auto* edge = tile->directededge(edge_id);
       tile = reader.GetGraphTile(edge->endnode(), tile);

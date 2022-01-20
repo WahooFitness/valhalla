@@ -44,8 +44,8 @@ void add_path_edge(valhalla::Location* l,
                    float percent_along,
                    const midgard::PointLL& ll,
                    float distance) {
-  l->mutable_path_edges()->Clear();
-  auto* edge = l->mutable_path_edges()->Add();
+  l->mutable_correlation()->mutable_edges()->Clear();
+  auto* edge = l->mutable_correlation()->mutable_edges()->Add();
   edge->set_graph_id(edge_id);
   edge->set_percent_along(percent_along);
   edge->mutable_ll()->set_lng(ll.first);
@@ -126,15 +126,6 @@ void thor_worker_t::trace_route(Api& request) {
       // clang-format on
       break;
   }
-
-  // log admin areas
-  if (!options.do_not_track()) {
-    for (const auto& route : request.trip().routes()) {
-      for (const auto& leg : route.legs()) {
-        log_admin(leg);
-      }
-    }
-  }
 }
 
 /*
@@ -191,8 +182,9 @@ thor_worker_t::map_match(Api& request) {
   }
 
   // we don't allow multi path for trace route at the moment, discontinuities force multi route
-  int topk =
-      request.options().action() == Options::trace_attributes ? request.options().best_paths() : 1;
+  int topk = request.options().action() == Options::trace_attributes
+                 ? request.options().alternates() + 1
+                 : 1;
   auto topk_match_results = matcher->OfflineMatch(trace, topk);
 
   // Process each score/match result
@@ -221,7 +213,7 @@ thor_worker_t::map_match(Api& request) {
 
         // Make one path edge from it
         reader->GetGraphTile(match.edgeid, tile);
-        auto* pe = options.mutable_shape(i)->mutable_path_edges()->Add();
+        auto* pe = options.mutable_shape(i)->mutable_correlation()->mutable_edges()->Add();
         pe->mutable_ll()->set_lat(match.lnglat.lat());
         pe->mutable_ll()->set_lng(match.lnglat.lng());
         for (const auto& n : reader->edgeinfo(match.edgeid).GetNames()) {
@@ -234,7 +226,7 @@ thor_worker_t::map_match(Api& request) {
         }
         for (int j = 0;
              j < matcher->state_container().state(match.stateid).candidate().edges.size() - 1; ++j) {
-          options.mutable_shape(i)->mutable_path_edges()->Add();
+          options.mutable_shape(i)->mutable_correlation()->mutable_edges()->Add();
         }
       }
     }

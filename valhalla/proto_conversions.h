@@ -30,48 +30,45 @@ inline TripLeg_Surface GetTripLegSurface(const baldr::Surface surface) {
 
 // Associate vehicle types to TripLeg proto
 // TODO - why doesn't these use an enum input?
-constexpr TripLeg_VehicleType kTripLegVehicleType[] =
-    {TripLeg_VehicleType::TripLeg_VehicleType_kCar,
-     TripLeg_VehicleType::TripLeg_VehicleType_kMotorcycle,
-     TripLeg_VehicleType::TripLeg_VehicleType_kAutoBus,
-     TripLeg_VehicleType::TripLeg_VehicleType_kTractorTrailer,
-     TripLeg_VehicleType::TripLeg_VehicleType_kMotorScooter};
-inline TripLeg_VehicleType GetTripLegVehicleType(const uint8_t type) {
+constexpr VehicleType kTripLegVehicleType[] = {
+    VehicleType::kCar,          VehicleType::kMotorcycle,
+    VehicleType::kAutoBus,      VehicleType::kTractorTrailer,
+    VehicleType::kMotorScooter,
+};
+inline VehicleType GetTripLegVehicleType(const uint8_t type) {
   return (type <= static_cast<uint8_t>(sif::VehicleType::kMotorScooter)) ? kTripLegVehicleType[type]
                                                                          : kTripLegVehicleType[0];
 }
 
 // Associate pedestrian types to TripLeg proto
-constexpr TripLeg_PedestrianType kTripLegPedestrianType[] =
-    {TripLeg_PedestrianType::TripLeg_PedestrianType_kFoot,
-     TripLeg_PedestrianType::TripLeg_PedestrianType_kWheelchair,
-     TripLeg_PedestrianType::TripLeg_PedestrianType_kSegway};
-inline TripLeg_PedestrianType GetTripLegPedestrianType(const uint8_t type) {
+constexpr PedestrianType kTripLegPedestrianType[] = {
+    PedestrianType::kFoot,
+    PedestrianType::kWheelchair,
+    PedestrianType::kSegway,
+};
+inline PedestrianType GetTripLegPedestrianType(const uint8_t type) {
   return (type <= static_cast<uint8_t>(sif::PedestrianType::kSegway)) ? kTripLegPedestrianType[type]
                                                                       : kTripLegPedestrianType[0];
 }
 
 // Associate bicycle types to TripLeg proto
-constexpr TripLeg_BicycleType kTripLegBicycleType[] =
-    {TripLeg_BicycleType::TripLeg_BicycleType_kRoad, TripLeg_BicycleType::TripLeg_BicycleType_kCross,
-     TripLeg_BicycleType::TripLeg_BicycleType_kHybrid,
-     TripLeg_BicycleType::TripLeg_BicycleType_kMountain};
-inline TripLeg_BicycleType GetTripLegBicycleType(const uint8_t type) {
+constexpr BicycleType kTripLegBicycleType[] = {
+    BicycleType::kRoad,
+    BicycleType::kCross,
+    BicycleType::kHybrid,
+    BicycleType::kMountain,
+};
+inline BicycleType GetTripLegBicycleType(const uint8_t type) {
   return (type <= static_cast<uint8_t>(sif::BicycleType::kMountain)) ? kTripLegBicycleType[type]
                                                                      : kTripLegBicycleType[0];
 }
 
 // Associate transit types to TripLeg proto
-constexpr TripLeg_TransitType kTripLegTransitType[] =
-    {TripLeg_TransitType::TripLeg_TransitType_kTram,
-     TripLeg_TransitType::TripLeg_TransitType_kMetro,
-     TripLeg_TransitType::TripLeg_TransitType_kRail,
-     TripLeg_TransitType::TripLeg_TransitType_kBus,
-     TripLeg_TransitType::TripLeg_TransitType_kFerry,
-     TripLeg_TransitType::TripLeg_TransitType_kCableCar,
-     TripLeg_TransitType::TripLeg_TransitType_kGondola,
-     TripLeg_TransitType::TripLeg_TransitType_kFunicular};
-inline TripLeg_TransitType GetTripLegTransitType(const baldr::TransitType transit_type) {
+constexpr TransitType kTripLegTransitType[] = {
+    TransitType::kTram,  TransitType::kMetro,    TransitType::kRail,    TransitType::kBus,
+    TransitType::kFerry, TransitType::kCableCar, TransitType::kGondola, TransitType::kFunicular,
+};
+inline TransitType GetTripLegTransitType(const baldr::TransitType transit_type) {
   return kTripLegTransitType[static_cast<uint32_t>(transit_type)];
 }
 
@@ -220,6 +217,8 @@ inline TripLeg_Use GetTripLegUse(const baldr::Use use) {
       return TripLeg_Use_kFerryUse;
     case baldr::Use::kRailFerry:
       return TripLeg_Use_kRailFerryUse;
+    case baldr::Use::kConstruction:
+      return TripLeg_Use_kConstructionUse;
     case baldr::Use::kRail:
       return TripLeg_Use_kRailUse;
     case baldr::Use::kBus:
@@ -250,8 +249,8 @@ const std::string& GuidanceViewTypeToString(const valhalla::DirectionsLeg_Guidan
 // which would allow us to delete this completely would be to target a newer protobuf version
 bool Options_Action_Enum_Parse(const std::string& action, Options::Action* a);
 const std::string& Options_Action_Enum_Name(const Options::Action action);
-bool Costing_Enum_Parse(const std::string& costing, Costing* c);
-const std::string& Costing_Enum_Name(const Costing costing);
+bool Costing_Enum_Parse(const std::string& costing, Costing::Type* c);
+const std::string& Costing_Enum_Name(const Costing::Type costing);
 bool ShapeMatch_Enum_Parse(const std::string& match, ShapeMatch* s);
 const std::string& ShapeMatch_Enum_Name(const ShapeMatch match);
 bool Options_Format_Enum_Parse(const std::string& format, Options::Format* f);
@@ -265,6 +264,8 @@ bool RoadClass_Enum_Parse(const std::string& rc_name, valhalla::RoadClass* rc);
 bool Location_Type_Enum_Parse(const std::string& type, Location::Type* t);
 const std::string& Location_Type_Enum_Name(const Location::Type t);
 const std::string& Location_SideOfStreet_Enum_Name(const Location::SideOfStreet s);
+bool Options_ExpansionProperties_Enum_Parse(const std::string& prop, Options::ExpansionProperties* a);
+bool Options_ExpansionAction_Enum_Parse(const std::string& action, Options::Action* a);
 
 std::pair<std::string, std::string>
 travel_mode_type(const valhalla::DirectionsLeg_Maneuver& maneuver);

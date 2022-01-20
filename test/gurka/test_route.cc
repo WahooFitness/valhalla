@@ -217,13 +217,14 @@ TEST(AutoDataFix, deprecation) {
       R"("costing_options":{"auto":{"use_ferry":0.8}, "auto_data_fix":{"use_ferry":0.1, "use_tolls": 0.77}}})";
   ParseApi(request_str, Options::route, request);
 
-  EXPECT_EQ(request.options().costing(), valhalla::auto_);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).ignore_access(), true);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).ignore_closures(), true);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).ignore_oneways(), true);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).ignore_restrictions(), true);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).use_ferry(), 0.1f);
-  EXPECT_EQ(request.options().costing_options(valhalla::auto_).use_tolls(), 0.77f);
+  EXPECT_EQ(request.options().costing_type(), Costing::auto_);
+  const auto& co = request.options().costings().find(Costing::auto_)->second.options();
+  EXPECT_EQ(co.ignore_access(), true);
+  EXPECT_EQ(co.ignore_closures(), true);
+  EXPECT_EQ(co.ignore_oneways(), true);
+  EXPECT_EQ(co.ignore_restrictions(), true);
+  EXPECT_EQ(co.use_ferry(), 0.1f);
+  EXPECT_EQ(co.use_tolls(), 0.77f);
 }
 
 /*************************************************************/
@@ -832,7 +833,7 @@ TEST(AlgorithmTestDest, TestAlgoSwapAndDestOnly) {
                             {"DA", {{"highway", "primary"}}},
                             {"AY", {{"highway", "primary"}}},
                             {"YZ", {{"highway", "primary"}}}};
-  gurka::map map = gurka::buildtiles(layout, ways, {}, {}, "test/data/search_filter");
+  gurka::map map = gurka::buildtiles(layout, ways, {}, {}, "test/data/algo_swap_dest_only");
 
   // Notes on this test:
   // * We want the first leg to choose bidir A*:
@@ -887,7 +888,7 @@ TEST(AlgorithmTestDest, TestAlgoSwapAndDestOnly) {
   std::vector<int> actual_path_edge_sizes;
   actual_path_edge_sizes.reserve(api.options().locations_size());
   for (int i = 0; i < api.options().locations_size(); i++) {
-    actual_path_edge_sizes.emplace_back(api.options().locations(i).path_edges().size());
+    actual_path_edge_sizes.emplace_back(api.options().locations(i).correlation().edges().size());
   }
   ASSERT_EQ(expected_path_edge_sizes, actual_path_edge_sizes);
 }

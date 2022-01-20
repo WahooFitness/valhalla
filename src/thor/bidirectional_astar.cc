@@ -36,7 +36,7 @@ constexpr float kAlternativeCostExtend = 1.2f;
 constexpr uint32_t kAlternativeIterationsDelta = 100000;
 
 inline float find_percent_along(const valhalla::Location& location, const GraphId& edge_id) {
-  for (const auto& e : location.path_edges()) {
+  for (const auto& e : location.correlation().edges()) {
     if (e.graph_id() == edge_id)
       return e.percent_along();
   }
@@ -56,7 +56,7 @@ BidirectionalAStar::BidirectionalAStar(const boost::property_tree::ptree& config
   cost_threshold_ = 0;
   iterations_threshold_ = 0;
   desired_paths_count_ = 1;
-  mode_ = TravelMode::kDrive;
+  mode_ = travel_mode_t::kDrive;
   access_mode_ = kAutoAccess;
   travel_type_ = 0;
   cost_diff_ = 0.0f;
@@ -358,8 +358,8 @@ inline bool BidirectionalAStar::ExpandInner(baldr::GraphReader& graphreader,
 
   // setting this edge as reached
   if (expansion_callback_) {
-    expansion_callback_(graphreader, "bidirectional_astar", FORWARD ? meta.edge_id : opp_edge_id, "r",
-                        false);
+    expansion_callback_(graphreader, FORWARD ? meta.edge_id : opp_edge_id, "bidirectional_astar", "r",
+                        pred.cost().secs, pred.path_distance(), pred.cost().cost);
   }
 
   // we've just added this edge to the queue, but we won't expand from it if it's a not-thru edge that
@@ -489,7 +489,7 @@ BidirectionalAStar::GetBestPath(valhalla::Location& origin,
                                 valhalla::Location& destination,
                                 GraphReader& graphreader,
                                 const sif::mode_costing_t& mode_costing,
-                                const sif::TravelMode mode,
+                                const sif::travel_mode_t mode,
                                 const Options& options) {
   // Set the mode and costing
   mode_ = mode;
@@ -498,17 +498,19 @@ BidirectionalAStar::GetBestPath(valhalla::Location& origin,
   access_mode_ = costing_->access_mode();
 
   desired_paths_count_ = 1;
-  if (options.has_alternates() && options.alternates())
+  if (options.has_alternates_case() && options.alternates())
     desired_paths_count_ += options.alternates();
 
   // Initialize - create adjacency list, edgestatus support, A*, etc.
-  PointLL origin_new(origin.path_edges(0).ll().lng(), origin.path_edges(0).ll().lat());
-  PointLL destination_new(destination.path_edges(0).ll().lng(), destination.path_edges(0).ll().lat());
+  PointLL origin_new(origin.correlation().edges(0).ll().lng(),
+                     origin.correlation().edges(0).ll().lat());
+  PointLL destination_new(destination.correlation().edges(0).ll().lng(),
+                          destination.correlation().edges(0).ll().lat());
   Init(origin_new, destination_new);
 
   // we use a non varying time for all time dependent routes until we can figure out how to vary the
   // time during the path computation in the bidirectional algorithm
-  bool invariant = options.has_date_time_type();
+  bool invariant = options.has_date_time_type_case();
   // Get time information for forward and backward searches
   auto forward_time_info = TimeInfo::make(origin, graphreader, &tz_cache_);
   auto reverse_time_info = TimeInfo::make(destination, graphreader, &tz_cache_);
@@ -702,7 +704,8 @@ BidirectionalAStar::GetBestPath(valhalla::Location& origin,
 
       // setting this edge as settled
       if (expansion_callback_) {
-        expansion_callback_(graphreader, "bidirectional_astar", fwd_pred.edgeid(), "s", false);
+        expansion_callback_(graphreader, fwd_pred.edgeid(), "bidirectional_astar", "s",
+                            fwd_pred.cost().secs, fwd_pred.path_distance(), fwd_pred.cost().cost);
       }
 
       // Prune path if predecessor is not a through edge or if the maximum
@@ -745,7 +748,8 @@ BidirectionalAStar::GetBestPath(valhalla::Location& origin,
 
       // setting this edge as settled, sending the opposing because this is the reverse tree
       if (expansion_callback_) {
-        expansion_callback_(graphreader, "bidirectional_astar", rev_pred.opp_edgeid(), "s", false);
+        expansion_callback_(graphreader, rev_pred.opp_edgeid(), "bidirectional_astar", "s",
+                            rev_pred.cost().secs, rev_pred.path_distance(), rev_pred.cost().cost);
       }
 
       // Prune path if predecessor is not a through edge
@@ -856,7 +860,8 @@ bool BidirectionalAStar::SetForwardConnection(GraphReader& graphreader, const BD
 
   // setting this edge as connected
   if (expansion_callback_) {
-    expansion_callback_(graphreader, "bidirectional_astar", pred.edgeid(), "c", false);
+    expansion_callback_(graphreader, pred.edgeid(), "bidirectional_astar", "c", pred.cost().secs,
+                        pred.path_distance(), pred.cost().cost);
   }
 
   return true;
@@ -924,7 +929,8 @@ bool BidirectionalAStar::SetReverseConnection(GraphReader& graphreader, const BD
 
   // setting this edge as connected, sending the opposing because this is the reverse tree
   if (expansion_callback_) {
-    expansion_callback_(graphreader, "bidirectional_astar", fwd_edge_id, "c", false);
+    expansion_callback_(graphreader, fwd_edge_id, "bidirectional_astar", "c", fwd_pred.cost().secs,
+                        fwd_pred.path_distance(), fwd_pred.cost().cost);
   }
 
   return true;
@@ -936,13 +942,13 @@ void BidirectionalAStar::SetOrigin(GraphReader& graphreader,
                                    const TimeInfo& time_info) {
   // Only skip inbound edges if we have other options
   bool has_other_edges =
-      std::any_of(origin.path_edges().begin(), origin.path_edges().end(),
-                  [](const valhalla::Location::PathEdge& e) { return !e.end_node(); });
+      std::any_of(origin.correlation().edges().begin(), origin.correlation().edges().end(),
+                  [](const valhalla::PathEdge& e) { return !e.end_node(); });
 
   // Iterate through edges and add to adjacency list
   const NodeInfo* nodeinfo = nullptr;
   const NodeInfo* closest_ni = nullptr;
-  for (const auto& edge : origin.path_edges()) {
+  for (const auto& edge : origin.correlation().edges()) {
     // If origin is at a node - skip any inbound edge (dist = 1)
     if (has_other_edges && edge.end_node()) {
       continue;
@@ -1004,7 +1010,8 @@ void BidirectionalAStar::SetOrigin(GraphReader& graphreader,
 
     // setting this edge as reached
     if (expansion_callback_) {
-      expansion_callback_(graphreader, "bidirectional_astar", edgeid, "r", false);
+      expansion_callback_(graphreader, edgeid, "bidirectional_astar", "r", cost.secs, edge.distance(),
+                          cost.cost);
     }
 
     // Set the initial not_thru flag to false. There is an issue with not_thru
@@ -1017,7 +1024,7 @@ void BidirectionalAStar::SetOrigin(GraphReader& graphreader,
   }
 
   // Set the origin timezone
-  if (closest_ni != nullptr && origin.has_date_time() && origin.date_time() == "current") {
+  if (closest_ni != nullptr && origin.has_date_time_case() && origin.date_time() == "current") {
     origin.set_date_time(
         DateTime::iso_date_time(DateTime::get_tz_db().from_index(closest_ni->timezone())));
   }
@@ -1029,12 +1036,12 @@ void BidirectionalAStar::SetDestination(GraphReader& graphreader,
                                         const TimeInfo& time_info) {
   // Only skip outbound edges if we have other options
   bool has_other_edges =
-      std::any_of(dest.path_edges().begin(), dest.path_edges().end(),
-                  [](const valhalla::Location::PathEdge& e) { return !e.begin_node(); });
+      std::any_of(dest.correlation().edges().begin(), dest.correlation().edges().end(),
+                  [](const valhalla::PathEdge& e) { return !e.begin_node(); });
 
   // Iterate through edges and add to adjacency list
   Cost c;
-  for (const auto& edge : dest.path_edges()) {
+  for (const auto& edge : dest.correlation().edges()) {
     // If the destination is at a node, skip any outbound edges (so any
     // opposing inbound edges are not considered)
     if (has_other_edges && edge.begin_node()) {
@@ -1095,9 +1102,10 @@ void BidirectionalAStar::SetDestination(GraphReader& graphreader,
                                      sif::InternalTurn::kNoTurn, -1);
     adjacencylist_reverse_.add(idx);
 
-    // setting this edge as settled, sending the opposing because this is the reverse tree
+    // setting this edge as reached, sending the opposing because this is the reverse tree
     if (expansion_callback_) {
-      expansion_callback_(graphreader, "bidirectional_astar", edgeid, "r", false);
+      expansion_callback_(graphreader, edgeid, "bidirectional_astar", "r", cost.secs, edge.distance(),
+                          cost.cost);
     }
 
     // Set the initial not_thru flag to false. There is an issue with not_thru
@@ -1269,7 +1277,8 @@ std::vector<std::vector<PathInfo>> BidirectionalAStar::FormPath(GraphReader& gra
 
     // recost edges in final path; ignore access restrictions
     try {
-      bool invariant = options.has_date_time_type() && options.date_time_type() == Options::invariant;
+      bool invariant =
+          options.has_date_time_type_case() && options.date_time_type() == Options::invariant;
       sif::recost_forward(graphreader, *costing_, edge_cb, label_cb, source_pct, target_pct,
                           time_info, invariant, true);
     } catch (const std::exception& e) {

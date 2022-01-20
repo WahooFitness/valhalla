@@ -35,6 +35,7 @@ config = {
     'hierarchy': True,
     'shortcuts': True,
     'include_driveways': True,
+    'include_construction': False,
     'include_bicycle': True,
     'include_pedestrian': True,
     'include_driving': True,
@@ -251,8 +252,8 @@ config = {
       'max_gps_accuracy': 100.0,
       'max_search_radius': 100.0,
       'max_shape': 16000,
-      'max_best_paths': 4,
-      'max_best_paths_shape': 100
+      'max_alternates': 3,
+      'max_alternates_shape': 100
     },
     'bikeshare': {
       'max_distance': 500000.0,
@@ -304,6 +305,7 @@ help_text = {
     'hierarchy': 'bool indicating whether road hierarchy is to be built - default to True',
     'shortcuts': 'bool indicating whether shortcuts are to be built - default to True',
     'include_driveways': 'bool indicating whether private driveways are included - default to True',
+    'include_construction': 'bool indicating where roads under construction are included - default to False',
     'include_bicycle': 'bool indicating whether cycling only ways are included - default to True',
     'include_pedestrian': 'bool indicating whether pedestrian only ways are included - default to True',
     'include_driving': 'bool indicating whether driving only ways are included - default to True',
@@ -520,8 +522,8 @@ help_text = {
       'max_gps_accuracy': 'Maximum input gps accuracy in meters',
       'max_search_radius': 'Maximum upper bounds of the search radius in meters',
       'max_shape': 'Maximum number of input shape points',
-      'max_best_paths': 'Maximum number of best paths',
-      'max_best_paths_shape': 'Maximum number of input shape points when requesting multiple paths'
+      'max_alternates': 'Maximum number of alternate map matching',
+      'max_alternates_shape': 'Maximum number of input shape points when requesting multiple paths'
     },
     'bikeshare': {
       'max_distance': 'Maximum b-line distance between all locations in meters',
@@ -591,7 +593,7 @@ def override_config(args_: dict, leaves_: list, config_: dict):
         v = config_
         for k in keys[:-1]:
             v = v[k]
-        v[keys[-1]] = args_.get(leaf.replace('\0', '_'))
+        v[keys[-1]] = args_.get(leaf.replace('\0', '_'))        
         if isinstance(v[keys[-1]], type(Optional())):
             del v[keys[-1]]
 

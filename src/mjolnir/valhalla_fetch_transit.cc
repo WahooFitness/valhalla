@@ -287,7 +287,7 @@ void get_stop_stations(Transit& tile,
                        const ptree& response,
                        const AABB2<PointLL>& filter/*,
                        bool tile_within_one_tz,
-                       const std::unordered_multimap<uint32_t, multi_polygon_type>& tz_polys*/) {
+                       const std::multimap<uint32_t, multi_polygon_type>& tz_polys*/) {
 
   for (const auto& station_pt : response.get_child("stop_stations")) {
 
@@ -774,7 +774,7 @@ void fetch_tiles(const ptree& pt,
     LOG_INFO("Fetching " + transit_tile.string());
 
     bool tile_within_one_tz = false;
-    std::unordered_multimap<uint32_t, multi_polygon_type> tz_polys;
+    std::multimap<uint32_t, multi_polygon_type> tz_polys;
     if (tz_db_handle) {
       tz_polys = GetTimeZones(tz_db_handle, filter);
       if (tz_polys.size() == 1) {
@@ -1062,7 +1062,11 @@ void stitch_tiles(const ptree& pt,
         }
       }
       lock.lock();
+#if GOOGLE_PROTOBUF_VERSION >= 3001000
+      auto size = tile.ByteSizeLong();
+#else
       auto size = tile.ByteSize();
+#endif
       valhalla::midgard::mem_map<char> buffer;
       buffer.create(file_name, size);
       tile.SerializeToArray(buffer.get(), size);

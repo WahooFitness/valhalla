@@ -19,7 +19,7 @@
 #include "midgard/logging.h"
 #include "midgard/pointll.h"
 #include "midgard/util.h"
-#include "proto/tripcommon.pb.h"
+#include "proto/common.pb.h"
 #include "sif/costconstants.h"
 #include "sif/recost.h"
 #include "thor/attributes_controller.h"
@@ -155,7 +155,7 @@ valhalla::TripLeg_Closure* fetch_or_create_closure_annotation(TripLeg& leg) {
   valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(leg);
   // If last closure annotation has its end index populated, create a new
   // closure annotation
-  return (!closure || closure->has_end_shape_index()) ? leg.add_closures() : closure;
+  return (!closure || closure->has_end_shape_index_case()) ? leg.add_closures() : closure;
 }
 
 /**
@@ -337,14 +337,14 @@ void SetShapeAttributes(const AttributesController& controller,
         // annotation if it does not have an end index set (meaning the shape
         // is still within an existing closure)
         ::valhalla::TripLeg_Closure* closure = fetch_or_create_closure_annotation(leg);
-        if (!closure->has_begin_shape_index()) {
+        if (!closure->has_begin_shape_index_case()) {
           closure->set_begin_shape_index(i - 1);
         }
       } else {
         // Not a closure, check if we need to set the end of an existing
         // closure annotation or not
         ::valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(leg);
-        if (closure && !closure->has_end_shape_index()) {
+        if (closure && !closure->has_end_shape_index_case()) {
           closure->set_end_shape_index(i - 1);
         }
       }
@@ -370,11 +370,11 @@ void SetShapeAttributes(const AttributesController& controller,
     // Set shape attributes speed per shape point if requested
     if (controller.attributes.at(kShapeAttributesSpeed)) {
       // convert speed to decimeters per sec and then round to an integer
-      double speed = (distance * kDecimeterPerMeter / time) + 0.5;
-      if (std::isnan(speed) || time == 0.) { // avoid NaN
-        speed = 0.;
+      double decimeters_sec = (distance * kDecimeterPerMeter / time) + 0.5;
+      if (std::isnan(decimeters_sec) || time == 0.) { // avoid NaN
+        decimeters_sec = 0.;
       }
-      leg.mutable_shape_attributes()->add_speed(speed);
+      leg.mutable_shape_attributes()->add_speed(decimeters_sec);
     }
 
     // Set the maxspeed if requested
@@ -411,16 +411,19 @@ void SetBoundingBox(TripLeg& trip_path, const std::vector<PointLL>& shape) {
  * @param edge_id   The edge id to keep
  */
 void RemovePathEdges(valhalla::Location* location, const GraphId& edge_id) {
-  auto pos = std::find_if(location->path_edges().begin(), location->path_edges().end(),
-                          [&edge_id](const valhalla::Location::PathEdge& e) {
-                            return e.graph_id() == edge_id;
-                          });
-  if (pos == location->path_edges().end())
+  auto pos =
+      std::find_if(location->correlation().edges().begin(), location->correlation().edges().end(),
+                   [&edge_id](const valhalla::PathEdge& e) { return e.graph_id() == edge_id; });
+  if (pos == location->correlation().edges().end())
     throw std::logic_error("Could not find matching edge candidate");
 
-  if (location->path_edges_size() > 1) {
-    location->mutable_path_edges()->SwapElements(0, pos - location->path_edges().begin());
-    location->mutable_path_edges()->DeleteSubrange(1, location->path_edges_size() - 1);
+  if (location->correlation().edges_size() > 1) {
+    location->mutable_correlation()
+        ->mutable_edges()
+        ->SwapElements(0, pos - location->correlation().edges().begin());
+    location->mutable_correlation()
+        ->mutable_edges()
+        ->DeleteSubrange(1, location->correlation().edges_size() - 1);
   }
 }
 
@@ -442,11 +445,11 @@ void CopyLocations(TripLeg& trip_path,
     valhalla::Location* tp_intermediate = trip_path.add_location();
     tp_intermediate->CopyFrom(intermediate);
     // we can grab the right edge index in the path because we temporarily set it for trimming
-    if (!intermediate.has_leg_shape_index()) {
+    if (!intermediate.correlation().has_leg_shape_index_case()) {
       throw std::logic_error("leg_shape_index not set for intermediate location");
     }
     RemovePathEdges(&*trip_path.mutable_location()->rbegin(),
-                    (path_begin + intermediate.leg_shape_index())->edgeid);
+                    (path_begin + intermediate.correlation().leg_shape_index())->edgeid);
   }
   // destination
   trip_path.add_location()->CopyFrom(dest);
@@ -731,7 +734,8 @@ void AddIntersectingEdges(const AttributesController& controller,
     if (intersecting_edge->is_shortcut() ||
         intersecting_edge->localedgeidx() == prior_opp_local_index ||
         intersecting_edge->localedgeidx() == directededge->localedgeidx() ||
-        (directededge->is_shortcut() && directededge->shortcut() & intersecting_edge->superseded())) {
+        (directededge->is_shortcut() && directededge->shortcut() & intersecting_edge->superseded()) ||
+        intersecting_edge->use() == Use::kConstruction) {
       continue;
     }
 
@@ -756,7 +760,8 @@ void AddIntersectingEdges(const AttributesController& controller,
         // Skip shortcut edges and edges on the path
         if (intersecting_edge2->is_shortcut() ||
             intersecting_edge2->localedgeidx() == prior_opp_local_index ||
-            intersecting_edge2->localedgeidx() == directededge->localedgeidx()) {
+            intersecting_edge2->localedgeidx() == directededge->localedgeidx() ||
+            intersecting_edge2->use() == Use::kConstruction) {
           continue;
         }
 
@@ -1013,7 +1018,7 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
 
   // Set drive_on_right if requested
   if (controller.attributes.at(kEdgeDriveOnRight)) {
-    trip_edge->set_drive_on_right(drive_on_right);
+    trip_edge->set_drive_on_left(!drive_on_right);
   }
 
   // Set surface if requested
@@ -1030,14 +1035,14 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
     // Override bicycle mode with pedestrian if dismount flag or steps
     if (directededge->dismount() || directededge->use() == Use::kSteps) {
       if (controller.attributes.at(kEdgeTravelMode)) {
-        trip_edge->set_travel_mode(TripLeg_TravelMode::TripLeg_TravelMode_kPedestrian);
+        trip_edge->set_travel_mode(valhalla::TravelMode::kPedestrian);
       }
       if (controller.attributes.at(kEdgePedestrianType)) {
-        trip_edge->set_pedestrian_type(TripLeg_PedestrianType::TripLeg_PedestrianType_kFoot);
+        trip_edge->set_pedestrian_type(valhalla::PedestrianType::kFoot);
       }
     } else {
       if (controller.attributes.at(kEdgeTravelMode)) {
-        trip_edge->set_travel_mode(TripLeg_TravelMode::TripLeg_TravelMode_kBicycle);
+        trip_edge->set_travel_mode(valhalla::TravelMode::kBicycle);
       }
       if (controller.attributes.at(kEdgeBicycleType)) {
         trip_edge->set_bicycle_type(GetTripLegBicycleType(travel_type));
@@ -1045,21 +1050,21 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
     }
   } else if (mode == sif::TravelMode::kDrive) {
     if (controller.attributes.at(kEdgeTravelMode)) {
-      trip_edge->set_travel_mode(TripLeg_TravelMode::TripLeg_TravelMode_kDrive);
+      trip_edge->set_travel_mode(valhalla::TravelMode::kDrive);
     }
     if (controller.attributes.at(kEdgeVehicleType)) {
       trip_edge->set_vehicle_type(GetTripLegVehicleType(travel_type));
     }
   } else if (mode == sif::TravelMode::kPedestrian) {
     if (controller.attributes.at(kEdgeTravelMode)) {
-      trip_edge->set_travel_mode(TripLeg_TravelMode::TripLeg_TravelMode_kPedestrian);
+      trip_edge->set_travel_mode(valhalla::TravelMode::kPedestrian);
     }
     if (controller.attributes.at(kEdgePedestrianType)) {
       trip_edge->set_pedestrian_type(GetTripLegPedestrianType(travel_type));
     }
   } else if (mode == sif::TravelMode::kPublicTransit) {
     if (controller.attributes.at(kEdgeTravelMode)) {
-      trip_edge->set_travel_mode(TripLeg_TravelMode::TripLeg_TravelMode_kTransit);
+      trip_edge->set_travel_mode(valhalla::TravelMode::kTransit);
     }
   }
 
@@ -1173,7 +1178,7 @@ TripLeg_Edge* AddTripEdge(const AttributesController& controller,
   // Process transit information
   if (trip_id && (directededge->use() == Use::kRail || directededge->use() == Use::kBus)) {
 
-    TripLeg_TransitRouteInfo* transit_route_info = trip_edge->mutable_transit_route_info();
+    TransitRouteInfo* transit_route_info = trip_edge->mutable_transit_route_info();
 
     // Set block_id if requested
     if (controller.attributes.at(kEdgeTransitRouteInfoBlockId)) {
@@ -1474,7 +1479,7 @@ void TripLegBuilder::Build(
 
   // check if we should use static time or offset time as the path lengthens
   const bool invariant =
-      options.has_date_time_type() && options.date_time_type() == Options::invariant;
+      options.has_date_time_type_case() && options.date_time_type() == Options::invariant;
 
   // Create an array of travel types per mode
   uint8_t travel_types[4];
@@ -1503,7 +1508,7 @@ void TripLegBuilder::Build(
   valhalla::Location::SideOfStreet start_sos =
       valhalla::Location::SideOfStreet::Location_SideOfStreet_kNone;
   PointLL start_vrt;
-  for (const auto& e : origin.path_edges()) {
+  for (const auto& e : origin.correlation().edges()) {
     if (e.graph_id() == path_begin->edgeid) {
       start_pct = e.percent_along();
       start_sos = e.side_of_street();
@@ -1513,7 +1518,7 @@ void TripLegBuilder::Build(
   }
 
   // Set the origin projected location
-  LatLng* proj_ll = tp_orig->mutable_projected_ll();
+  LatLng* proj_ll = tp_orig->mutable_correlation()->mutable_projected_ll();
   proj_ll->set_lat(start_vrt.lat());
   proj_ll->set_lng(start_vrt.lng());
 
@@ -1527,7 +1532,7 @@ void TripLegBuilder::Build(
   valhalla::Location::SideOfStreet end_sos =
       valhalla::Location::SideOfStreet::Location_SideOfStreet_kNone;
   PointLL end_vrt;
-  for (const auto& e : dest.path_edges()) {
+  for (const auto& e : dest.correlation().edges()) {
     if (e.graph_id() == (path_end - 1)->edgeid) {
       end_pct = e.percent_along();
       end_sos = e.side_of_street();
@@ -1537,7 +1542,7 @@ void TripLegBuilder::Build(
   }
 
   // Set the destination projected location
-  proj_ll = tp_dest->mutable_projected_ll();
+  proj_ll = tp_dest->mutable_correlation()->mutable_projected_ll();
   proj_ll->set_lat(end_vrt.lat());
   proj_ll->set_lng(end_vrt.lng());
 
@@ -1783,17 +1788,18 @@ void TripLegBuilder::Build(
     // If we are at a node or if we hit the edge index that matches our through location edge index,
     // we need to reset to the shape index then increment the iterator
     if (intermediate_itr != trip_path.mutable_location()->end() &&
-        intermediate_itr->leg_shape_index() == edge_index) {
-      intermediate_itr->set_leg_shape_index(trip_shape.size() - 1);
-      intermediate_itr->set_distance_from_leg_origin(total_distance);
+        intermediate_itr->correlation().leg_shape_index() == edge_index) {
+      intermediate_itr->mutable_correlation()->set_leg_shape_index(trip_shape.size() - 1);
+      intermediate_itr->mutable_correlation()->set_distance_from_leg_origin(total_distance);
       // NOTE:
       // So for intermediate locations that dont have any trimming we know they occur at the node
       // In this case and only for ARRIVE_BY, the edge index that we convert to shape is off by 1
       // So here we need to set this one as if it were at the end of the previous edge in the path
       if (trimming == edge_trimming.end() &&
-          (options.has_date_time_type() && options.date_time_type() == Options::arrive_by)) {
-        intermediate_itr->set_leg_shape_index(begin_index);
-        intermediate_itr->set_distance_from_leg_origin(previous_total_distance);
+          (options.has_date_time_type_case() && options.date_time_type() == Options::arrive_by)) {
+        intermediate_itr->mutable_correlation()->set_leg_shape_index(begin_index);
+        intermediate_itr->mutable_correlation()->set_distance_from_leg_origin(
+            previous_total_distance);
       }
       ++intermediate_itr;
     }
@@ -1887,7 +1893,7 @@ void TripLegBuilder::Build(
     // Set the end shape index if we're ending on a closure as the last index is
     // not processed in SetShapeAttributes above
     valhalla::TripLeg_Closure* closure = fetch_last_closure_annotation(trip_path);
-    if (closure && !closure->has_end_shape_index()) {
+    if (closure && !closure->has_end_shape_index_case()) {
       closure->set_end_shape_index(trip_shape.size() - 1);
     }
   }

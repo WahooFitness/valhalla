@@ -10,9 +10,9 @@ namespace {
 static bool IsTrivial(const uint64_t& edgeid,
                       const valhalla::Location& origin,
                       const valhalla::Location& destination) {
-  for (const auto& destination_edge : destination.path_edges()) {
+  for (const auto& destination_edge : destination.correlation().edges()) {
     if (destination_edge.graph_id() == edgeid) {
-      for (const auto& origin_edge : origin.path_edges()) {
+      for (const auto& origin_edge : origin.correlation().edges()) {
         if (origin_edge.graph_id() == edgeid &&
             origin_edge.percent_along() <= destination_edge.percent_along()) {
           return true;
@@ -28,7 +28,7 @@ namespace thor {
 
 // Constructor with cost threshold.
 TimeDistanceMatrix::TimeDistanceMatrix()
-    : mode_(TravelMode::kDrive), settled_count_(0), current_cost_threshold_(0) {
+    : mode_(travel_mode_t::kDrive), settled_count_(0), current_cost_threshold_(0) {
 }
 
 // Compute a cost threshold in seconds based on average speed for the travel mode.
@@ -36,14 +36,14 @@ TimeDistanceMatrix::TimeDistanceMatrix()
 float TimeDistanceMatrix::GetCostThreshold(const float max_matrix_distance) const {
   float average_speed_mph;
   switch (mode_) {
-    case TravelMode::kBicycle:
+    case travel_mode_t::kBicycle:
       average_speed_mph = 10.0f;
       break;
-    case TravelMode::kPedestrian:
-    case TravelMode::kPublicTransit:
+    case travel_mode_t::kPedestrian:
+    case travel_mode_t::kPublicTransit:
       average_speed_mph = 2.0f;
       break;
-    case TravelMode::kDrive:
+    case travel_mode_t::kDrive:
     default:
       average_speed_mph = 35.0f;
   }
@@ -153,7 +153,7 @@ TimeDistanceMatrix::OneToMany(const valhalla::Location& origin,
                               const google::protobuf::RepeatedPtrField<valhalla::Location>& locations,
                               GraphReader& graphreader,
                               const sif::mode_costing_t& mode_costing,
-                              const TravelMode mode,
+                              const travel_mode_t mode,
                               const float max_matrix_distance) {
   // Set the mode and costing
   mode_ = mode;
@@ -323,7 +323,7 @@ TimeDistanceMatrix::ManyToOne(const valhalla::Location& dest,
                               const google::protobuf::RepeatedPtrField<valhalla::Location>& locations,
                               GraphReader& graphreader,
                               const sif::mode_costing_t& mode_costing,
-                              const TravelMode mode,
+                              const travel_mode_t mode,
                               const float max_matrix_distance) {
   // Set the mode and costing
   mode_ = mode;
@@ -393,7 +393,7 @@ std::vector<TimeDistance> TimeDistanceMatrix::ManyToMany(
     const google::protobuf::RepeatedPtrField<valhalla::Location>& locations,
     GraphReader& graphreader,
     const sif::mode_costing_t& mode_costing,
-    const sif::TravelMode mode,
+    const sif::travel_mode_t mode,
     const float max_matrix_distance) {
   return SourceToTarget(locations, locations, graphreader, mode_costing, mode, max_matrix_distance);
 }
@@ -403,7 +403,7 @@ std::vector<TimeDistance> TimeDistanceMatrix::SourceToTarget(
     const google::protobuf::RepeatedPtrField<valhalla::Location>& target_location_list,
     baldr::GraphReader& graphreader,
     const sif::mode_costing_t& mode_costing,
-    const sif::TravelMode mode,
+    const sif::travel_mode_t mode,
     const float max_matrix_distance) {
   // Run a series of one to many calls and concatenate the results.
   std::vector<TimeDistance> many_to_many;
@@ -430,13 +430,13 @@ void TimeDistanceMatrix::SetOriginOneToMany(GraphReader& graphreader,
                                             const valhalla::Location& origin) {
   // Only skip inbound edges if we have other options
   bool has_other_edges = false;
-  std::for_each(origin.path_edges().begin(), origin.path_edges().end(),
-                [&has_other_edges](const valhalla::Location::PathEdge& e) {
+  std::for_each(origin.correlation().edges().begin(), origin.correlation().edges().end(),
+                [&has_other_edges](const valhalla::PathEdge& e) {
                   has_other_edges = has_other_edges || !e.end_node();
                 });
 
   // Iterate through edges and add to adjacency list
-  for (const auto& edge : origin.path_edges()) {
+  for (const auto& edge : origin.correlation().edges()) {
     // If origin is at a node - skip any inbound edge (dist = 1)
     if (has_other_edges && edge.end_node()) {
       continue;
@@ -487,7 +487,7 @@ void TimeDistanceMatrix::SetOriginOneToMany(GraphReader& graphreader,
 void TimeDistanceMatrix::SetOriginManyToOne(GraphReader& graphreader,
                                             const valhalla::Location& dest) {
   // Iterate through edges and add opposing edges to adjacency list
-  for (const auto& edge : dest.path_edges()) {
+  for (const auto& edge : dest.correlation().edges()) {
     // Disallow any user avoided edges if the avoid location is behind the destination along the edge
     GraphId edgeid(edge.graph_id());
     if (costing_->AvoidAsDestinationEdge(edgeid, edge.percent_along())) {
@@ -546,7 +546,7 @@ void TimeDistanceMatrix::SetDestinations(
   for (const auto& loc : locations) {
     // Set up the destination - consider each possible location edge.
     bool added = false;
-    for (const auto& edge : loc.path_edges()) {
+    for (const auto& edge : loc.correlation().edges()) {
       // Disallow any user avoided edges if the avoid location is behind the destination along the
       // edge
       GraphId edgeid(edge.graph_id());
@@ -595,7 +595,7 @@ void TimeDistanceMatrix::SetDestinationsManyToOne(
   for (const auto& loc : locations) {
     // Set up the destination - consider each possible location edge.
     bool added = false;
-    for (const auto& edge : loc.path_edges()) {
+    for (const auto& edge : loc.correlation().edges()) {
       // Get the opposing directed edge Id - this is the edge marked as the "destination",
       // but the cost is based on the forward path along the initial edge.
       GraphId opp_edge_id = graphreader.GetOpposingEdgeId(static_cast<GraphId>(edge.graph_id()));
