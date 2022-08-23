@@ -136,7 +136,7 @@ public:
   }
   virtual void Log(const std::string& message, const std::string& custom_directive = " [TRACE] ") {
 #ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_INFO, "valhalla", "%s", message.c_str());
+    __android_log_print(ANDROID_LOG_INFO, "valhalla", "%s%s", custom_directive.c_str(), message.c_str());
 #else
     std::string output;
     output.reserve(message.length() + 64);
@@ -165,7 +165,7 @@ class StdErrLogger : public StdOutLogger {
   using StdOutLogger::StdOutLogger;
   virtual void Log(const std::string& message, const std::string& custom_directive = " [TRACE] ") {
 #ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_ERROR, "valhalla", "%s", message.c_str());
+    __android_log_print(ANDROID_LOG_ERROR, "valhalla", "%s%s", custom_directive.c_str(), message.c_str());
 #else
     std::string output;
     output.reserve(message.length() + 64);
