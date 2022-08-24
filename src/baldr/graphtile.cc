@@ -385,12 +385,7 @@ void GraphTile::Initialize(const GraphId& graphid) {
         reinterpret_cast<const char*>(tile_ptr) + header_->elevation_samples_offset();
     edge_elevation_sample_sizes_ = reinterpret_cast<const uint16_t*>(elevation_size_ptr);
 
-    auto elevation_ptr = elevation_size_ptr + (header_->directededgecount() * sizeof(uint16_t));
-    edge_elevation_samples_.reserve(header_->directededgecount());
-    for (auto i = 0; i < header_->directededgecount(); ++i) {
-      edge_elevation_samples_.push_back(elevation_ptr);
-      elevation_ptr += edge_elevation_sample_sizes_[i];
-    }
+    elevation_ptr_ = elevation_size_ptr + (header_->directededgecount() * sizeof(uint16_t));
   }
 
   // Associate one stop Ids for transit tiles
@@ -400,7 +395,7 @@ void GraphTile::Initialize(const GraphId& graphid) {
 }
 
 std::string_view GraphTile::elevationSampleAtIndex(uint32_t directedEdgeIndex) const {
-  if (edge_elevation_samples_.empty()) {
+  if (elevation_ptr_ == nullptr) {
     return std::string_view{};
   }
 
@@ -408,7 +403,15 @@ std::string_view GraphTile::elevationSampleAtIndex(uint32_t directedEdgeIndex) c
     throw std::range_error("Invalid directed edge index when looking for elevation samples");
   }
 
-  return std::string_view{edge_elevation_samples_[directedEdgeIndex], edge_elevation_sample_sizes_[directedEdgeIndex]};
+  auto elevation_ptr = elevation_ptr_;
+  for (auto i = 0; i < header_->directededgecount(); ++i) {
+    if (i == directedEdgeIndex) {
+      return std::string_view{elevation_ptr, edge_elevation_sample_sizes_[directedEdgeIndex]};
+    }
+    elevation_ptr += edge_elevation_sample_sizes_[i];
+  }
+
+  return std::string_view{};
 }
 
 // For transit tiles we need to save off the pair<tileid,lineid> lookup via
@@ -667,8 +670,16 @@ EdgeInfo GraphTile::GetEdgeInfoFromIndex(size_t index) const {
     return edgeinfo(edge);
   }
 
+  auto elevation_ptr = elevation_ptr_;
+  for (auto i = 0; i < header_->directededgecount(); ++i) {
+    if (i == index) {
+      break;
+    }
+    elevation_ptr += edge_elevation_sample_sizes_[i];
+  }
+
   return EdgeInfo(edgeinfo_ + edge->edgeinfo_offset(), textlist_, textlist_size_,
-                  edge_elevation_samples_[index],
+                  elevation_ptr,
                   edge_elevation_sample_sizes_[index]);
 }
 
