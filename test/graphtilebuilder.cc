@@ -419,8 +419,7 @@ TEST(GraphTileBuilder, TestReadRealTile) {
   const auto expectedValues = std::vector<double>{26.6,25.7,25.5,23.4,22.1,21.2,18,17.6,17.4,10.5,
                                                   10.6,8.6,7.1,7.1,6.6,5.7,5,4.6};
 
-  const auto index = tile->DirectedEdgeIndexFromOffset(11112);
-  auto edgeInfo = tile->GetEdgeInfoFromIndex(index);
+  auto edgeInfo = tile->GetEdgeInfoFromIndex(testGraphId.id());
   const auto elevationSamples = edgeInfo.elevation_samples();
 
   ASSERT_EQ(expectedValues.size(), elevationSamples.size());

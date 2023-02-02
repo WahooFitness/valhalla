@@ -1669,12 +1669,9 @@ void TripLegBuilder::Build(
     float trim_start_pct = is_first_edge ? start_pct : 0;
     float trim_end_pct = is_last_edge ? end_pct : 1;
 
-    // Some edges at the beginning and end of the path and at intermediate locations will need trimmed
+    // Some edges at the beginning and end of the path and at intermediate locations will need to be trimmed
     uint32_t begin_index = is_first_edge ? 0 : trip_shape.size() - 1;
-    auto index = graphtile->DirectedEdgeIndexFromOffset(directededge->edgeinfo_offset());
-    auto edgeinfo = index != std::numeric_limits<size_t>::max()
-                        ? graphtile->GetEdgeInfoFromIndex(index)
-                        : graphtile->edgeinfo(directededge);
+    auto edgeinfo = graphtile->GetEdgeInfoFromIndex(edge.id());
 
     auto edge_shape = edgeinfo.shape();
     const auto elevation_shape = edgeinfo.elevation_samples();
