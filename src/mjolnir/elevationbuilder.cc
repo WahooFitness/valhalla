@@ -170,10 +170,10 @@ void add_elevation(const boost::property_tree::ptree& pt,
   }
 }
 
-void add_edge_elevation(uint32_t edgeIndex,
+void add_edge_elevation(uint32_t directedEdgeIndex,
                         GraphTileBuilder& tileBuilder,
                         const valhalla::skadi::sample* sample) {
-  const auto& directedEdge = tileBuilder.directededge(edgeIndex);
+  const auto& directedEdge = tileBuilder.directededge(directedEdgeIndex);
   const auto edgeInfo = tileBuilder.edgeinfo(&directedEdge);
   auto heights = sample->get_all(edgeInfo.shape());
 
@@ -181,6 +181,8 @@ void add_edge_elevation(uint32_t edgeIndex,
     std::reverse(std::begin(heights), std::end(heights));
   }
 
+  // TODO: This could be better. The samples should be encoded alongside edgeinfo regardless of direction,
+  // not the directed edge.
   tileBuilder.AddEdgeElevationSamples(encode7Samples(heights, kElevationSampleEncodePrecision));
 }
 

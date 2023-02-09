@@ -1220,15 +1220,5 @@ uint32_t GraphTile::turnlanes_offset(const uint32_t idx) const {
   return tl != &turnlanes_[count] ? tl->text_offset() : 0;
 }
 
-size_t GraphTile::DirectedEdgeIndexFromOffset(size_t offset) const {
-  for (auto i = 0; i < header_->directededgecount(); ++i) {
-    if (offset == directededges_[i].edgeinfo_offset()) {
-      return i;
-    }
-  }
-
-  return std::numeric_limits<size_t>::max();
-}
-
 } // namespace baldr
 } // namespace valhalla

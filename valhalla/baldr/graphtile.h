@@ -711,13 +711,6 @@ public:
     return live_speed.closed();
   }
 
-  /**
-   * Computes a directed edge index from an offset
-   * @param offset Offset within tile
-   * @return Index of directed edge or size_t's max value if not found
-   */
-  size_t DirectedEdgeIndexFromOffset(size_t offset) const;
-
   const TrafficTile& get_traffic_tile() const {
     return traffic_tile;
   }
