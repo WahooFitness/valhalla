@@ -1676,6 +1676,12 @@ void TripLegBuilder::Build(
     auto edge_shape = edgeinfo.shape();
     const auto elevation_shape = edgeinfo.elevation_samples();
     auto trip_points = std::vector<TripPoint>{};
+
+    // Get edge shape and reverse it if directed edge is not forward.
+    if (!directededge->forward()) {
+      std::reverse(edge_shape.begin(), edge_shape.end());
+    }
+
     if (edge_shape.size() == elevation_shape.size()) {
       trip_points.reserve(edge_shape.size());
       for (auto i = 0; i < edge_shape.size(); ++i) {
@@ -1688,10 +1694,6 @@ void TripLegBuilder::Build(
     auto trimming = edge_trimming.end();
     if (!edge_trimming.empty() &&
         (trimming = edge_trimming.find(edge_index)) != edge_trimming.end()) {
-      // Get edge shape and reverse it if directed edge is not forward.
-      if (!directededge->forward()) {
-        std::reverse(edge_shape.begin(), edge_shape.end());
-      }
 
       // Grab the edge begin and end info
       const auto& edge_begin_info = trimming->second.first;
@@ -1736,11 +1738,6 @@ void TripLegBuilder::Build(
                                                 edge_shape.end(), trip_points);
     } // We need to clip the shape if its at the beginning or end
     else if (is_first_edge || is_last_edge) {
-      // Get edge shape and reverse it if directed edge is not forward.
-      auto edge_shape = edgeinfo.shape();
-      if (!directededge->forward()) {
-        std::reverse(edge_shape.begin(), edge_shape.end());
-      }
       float total = static_cast<float>(directededge->length());
       // Trim both ways
       if (is_first_edge && is_last_edge) {
